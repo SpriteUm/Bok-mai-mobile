@@ -1,7 +1,10 @@
 // ลงข้อมูลหมวดหมู่ใน seed/categories.json
 // กับ emulator ตั้ง FIRESTORE_EMULATOR_HOST=localhost:8080 ก่อนรัน
-const { initializeApp } = require('../functions/node_modules/firebase-admin/app');
-const { getFirestore } = require('../functions/node_modules/firebase-admin/firestore');
+const path = require('path');
+const fromFunctions = (id) =>
+  require(require.resolve(id, { paths: [path.join(__dirname, '..', 'functions')] }));
+const { initializeApp } = fromFunctions('firebase-admin/app');
+const { getFirestore } = fromFunctions('firebase-admin/firestore');
 const categories = require('../seed/categories.json');
 
 initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'bok-mai-dev' });

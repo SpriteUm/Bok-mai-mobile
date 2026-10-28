@@ -1,7 +1,10 @@
 // ใช้: node scripts/set-admin.js admin@example.com
 // กับ emulator ตั้ง FIREBASE_AUTH_EMULATOR_HOST=localhost:9099 ก่อนรัน
-const { initializeApp } = require('../functions/node_modules/firebase-admin/app');
-const { getAuth } = require('../functions/node_modules/firebase-admin/auth');
+const path = require('path');
+const fromFunctions = (id) =>
+  require(require.resolve(id, { paths: [path.join(__dirname, '..', 'functions')] }));
+const { initializeApp } = fromFunctions('firebase-admin/app');
+const { getAuth } = fromFunctions('firebase-admin/auth');
 
 const email = process.argv[2];
 if (!email) {
