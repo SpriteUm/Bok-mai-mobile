@@ -7,7 +7,7 @@ const { initializeApp } = fromFunctions('firebase-admin/app');
 const { getFirestore } = fromFunctions('firebase-admin/firestore');
 const categories = require('../seed/categories.json');
 
-initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'bok-mai-dev' });
+initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'bok-mai-db' });
 const db = getFirestore();
 
 (async () => {

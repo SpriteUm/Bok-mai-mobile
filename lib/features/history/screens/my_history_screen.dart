@@ -32,7 +32,7 @@ class _MyHistoryScreenState extends ConsumerState<MyHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
-    final allIncidents = ref.watch(incidentFeedProvider);
+    final allIncidents = ref.watch(myIncidentsProvider).valueOrNull ?? const <IncidentModel>[];
 
     return Scaffold(
       appBar: AppBar(
