@@ -5,9 +5,9 @@
 ///  2) ส่งตอนรัน: flutter run --dart-define=CLOUDINARY_CLOUD_NAME=xxx --dart-define=CLOUDINARY_UPLOAD_PRESET=yyy
 class CloudinaryConfig {
   static const cloudName =
-      String.fromEnvironment('CLOUDINARY_CLOUD_NAME', defaultValue: '');
+      String.fromEnvironment('CLOUDINARY_CLOUD_NAME', defaultValue: 'skmbqk3p');
   static const uploadPreset =
-      String.fromEnvironment('CLOUDINARY_UPLOAD_PRESET', defaultValue: '');
+      String.fromEnvironment('CLOUDINARY_UPLOAD_PRESET', defaultValue: 'bokmai_reports');
 
   static bool get isConfigured => cloudName.isNotEmpty && uploadPreset.isNotEmpty;
 }
