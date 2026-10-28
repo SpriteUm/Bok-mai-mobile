@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Bok Mai Mobile</string>
+	<string>บอกไหม</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -24,6 +24,16 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ใช้กล้องถ่ายภาพปัญหาที่ต้องการแจ้ง</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>เลือกรูปภาพปัญหาจากคลังภาพเพื่อแนบกับรายงาน</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ใช้ตำแหน่งปัจจุบันเพื่อระบุจุดเกิดเหตุและแสดงปัญหาใกล้ตัว</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ใช้ไมโครโฟนบันทึกเสียงเพื่อสร้างรายงานปัญหา</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>ใช้แปลงเสียงพูดเป็นข้อความสำหรับรายละเอียดปัญหา</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
