@@ -48,5 +48,9 @@ app.*.map.json
 .env
 .env.*
 !.env.example
-supabase/.temp/
-supabase/.branches/
+
+# Firebase
+*-firebase-adminsdk-*.json
+firebase-debug*.log
+.firebase/
+emulator-data/
