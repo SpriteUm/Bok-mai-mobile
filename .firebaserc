@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "bok-mai-dev"
-  }
+    "default": "bok-mai-db"
+  },
+  "targets": {},
+  "etags": {}
 }
