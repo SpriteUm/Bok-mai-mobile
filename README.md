@@ -306,7 +306,7 @@ Bok-mai-mobile/
 ├── scripts/
 │   ├── seed.js             # ลงข้อมูลหมวดหมู่ (Admin SDK)
 │   └── set-admin.js        # ตั้ง Custom Claim admin ให้อีเมลที่ระบุ
-└── .env.example
+└── (functions/.env.example → ใส่ GEMINI_API_KEY ที่ functions/.env)
 ```
 
 ### โครงสร้างโฟลเดอร์ Flutter (feature-first)
@@ -421,7 +421,7 @@ FIREBASE_AUTH_EMULATOR_HOST=localhost:9099 node scripts/set-admin.js admin@examp
 
 ### Environment variables
 
-`.env.example`
+`functions/.env.example` (แอป Flutter ไม่ใช้ .env)
 ```
 # ค่า Firebase config (apiKey ฯลฯ) ไม่ใช่ความลับ — อยู่ใน firebase_options.dart ที่สร้างจาก flutterfire configure
 # ห้ามใส่ GEMINI_API_KEY ในแอป → เก็บเป็น Secret ของ Cloud Functions
