@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/admin/screens/admin_web_dashboard_screen.dart';
+import 'package:bok_mai_mobile/features/admin/screens/role_management_screen.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -152,6 +153,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           const SizedBox(height: 24),
 
+          if (user != null && isAdminMode) ...[
+            FilledButton.tonalIcon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RoleManagementScreen()),
+              ),
+              icon: const Icon(Icons.manage_accounts_rounded),
+              label: const Text('จัดการสิทธิ์ผู้ใช้'),
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (user != null) ...[
             OutlinedButton.icon(
               onPressed: () => FirebaseAuth.instance.signOut(),
