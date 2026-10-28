@@ -371,13 +371,19 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                           DataCell(
                             ClipRRect(
                               borderRadius: BorderRadius.circular(4),
-                              child: Image.network(
-                                incident.imageUrls.first,
-                                width: 44,
-                                height: 44,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_rounded, size: 28),
-                              ),
+                              child: incident.imageUrls.isEmpty
+                                  ? const SizedBox(
+                                      width: 44,
+                                      height: 44,
+                                      child: Icon(Icons.image_not_supported_rounded, size: 28),
+                                    )
+                                  : Image.network(
+                                      incident.imageUrls.first,
+                                      width: 44,
+                                      height: 44,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_rounded, size: 28),
+                                    ),
                             ),
                           ),
                           DataCell(
@@ -444,16 +450,22 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                     ],
                   ),
                   const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: Image.network(
-                      _selectedIncidentForManage!.imageUrls.first,
-                      height: 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
+                  if (_selectedIncidentForManage!.imageUrls.isNotEmpty) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      child: Image.network(
+                        _selectedIncidentForManage!.imageUrls.first,
+                        height: 180,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox(
+                          height: 180,
+                          child: Center(child: Icon(Icons.broken_image_rounded, size: 48)),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
+                  ],
                   Text(
                     _selectedIncidentForManage!.title,
                     style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
