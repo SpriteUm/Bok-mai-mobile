@@ -3,5 +3,6 @@
   { "code": "water", "nameTh": "น้ำประปา" },
   { "code": "road", "nameTh": "ถนน" },
   { "code": "waste", "nameTh": "ขยะ" },
+  { "code": "drainage", "nameTh": "ท่อระบายน้ำ" },
   { "code": "other", "nameTh": "อื่นๆ" }
 ]

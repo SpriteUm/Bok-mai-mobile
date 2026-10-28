@@ -125,7 +125,7 @@ users/{uid}
   createdAt: timestamp
   (role ไม่เก็บที่นี่ → ใช้ Custom Claim `admin` บน Auth token)
 
-categories/{code}                 // electric, water, road, waste, other
+categories/{code}                 // electric, water, road, waste, drainage, other
   nameTh: string
 
 issues/{issueId}                  // ข้อมูลเต็ม (มี reporterId) — เจ้าของ + admin อ่านได้เท่านั้น

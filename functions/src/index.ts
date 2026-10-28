@@ -39,10 +39,32 @@ export const followIssue = onCall(async (req) => {
   await db.runTransaction(async (tx) => {
     const [issue, follower] = await Promise.all([tx.get(issueRef), tx.get(followerRef)]);
     if (!issue.exists) throw new HttpsError('not-found', 'ไม่พบปัญหา');
+    if (issue.data()!.reporterId === uid) throw new HttpsError('failed-precondition', 'เจ้าของเรื่องนับเป็น 1 อยู่แล้ว');
     if (follower.exists) throw new HttpsError('already-exists', 'ติดตามแล้ว');
     tx.set(followerRef, { createdAt: FieldValue.serverTimestamp() });
     tx.update(issueRef, {
       reportCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+});
+
+// ยกเลิก +1
+export const unfollowIssue = onCall(async (req) => {
+  const uid = requireAuth(req.auth?.uid);
+  const issueId = String(req.data?.issueId ?? '');
+  if (!issueId) throw new HttpsError('invalid-argument', 'ต้องระบุ issueId');
+
+  const issueRef = db.collection('issues').doc(issueId);
+  const followerRef = db.collection('issues_feed').doc(issueId).collection('followers').doc(uid);
+
+  await db.runTransaction(async (tx) => {
+    const [issue, follower] = await Promise.all([tx.get(issueRef), tx.get(followerRef)]);
+    if (!issue.exists) throw new HttpsError('not-found', 'ไม่พบปัญหา');
+    if (!follower.exists) throw new HttpsError('failed-precondition', 'ยังไม่ได้ติดตาม');
+    tx.delete(followerRef);
+    tx.update(issueRef, {
+      reportCount: Math.max((issue.data()!.reportCount ?? 1) - 1, 1),
       updatedAt: FieldValue.serverTimestamp(),
     });
   });
