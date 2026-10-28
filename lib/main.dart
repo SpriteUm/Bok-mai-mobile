@@ -51,6 +51,7 @@ class AuthGate extends ConsumerWidget {
           error: (e, _) => Scaffold(body: Center(child: Text('เกิดข้อผิดพลาด: $e'))),
           data: (user) {
             if (user == null) return const LoginScreen();
+            ref.watch(ensureProfileProvider);
             return ref.watch(isAdminProvider).when(
                   loading: () => const _Splash(),
                   error: (_, _) => const _AppHome(isAdmin: false),

@@ -76,6 +76,7 @@ class _LoginScreenState extends State<LoginScreen> {
               .doc(cred.user!.uid)
               .set({
             'displayName': name,
+            'email': email,
             'createdAt': FieldValue.serverTimestamp(),
           });
         } on FirebaseException catch (e) {
