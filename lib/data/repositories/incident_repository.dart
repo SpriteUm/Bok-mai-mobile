@@ -86,10 +86,16 @@ class IncidentRepository {
     required String issueId,
     required IncidentStatus status,
     String note = '',
+    List<String> resolutionImageUrls = const [],
   }) {
-    final patch = {
+    final patch = <String, dynamic>{
       'status': status.code,
       'updatedAt': FieldValue.serverTimestamp(),
+      // รูปหลังแก้ไข (After) เก็บเป็นลิงก์ ต่อท้ายรูปเดิม
+      if (resolutionImageUrls.isNotEmpty)
+        'images': FieldValue.arrayUnion([
+          for (final url in resolutionImageUrls) {'url': url, 'kind': 'resolution'},
+        ]),
     };
     final batch = _db.batch()
       ..update(_issues.doc(issueId), patch)
