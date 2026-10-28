@@ -149,7 +149,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           const ListTile(
             leading: Icon(Icons.info_outline_rounded),
             title: Text('เวอร์ชันแอป'),
-            subtitle: Text('Bok Mai v1.0.0 (Flutter + Supabase + Gemini)'),
+            subtitle: Text('Bok Mai v1.0.0 (Flutter + Firebase + Gemini)'),
           ),
         ],
       ),

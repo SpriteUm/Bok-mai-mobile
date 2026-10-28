@@ -1,0 +1,7 @@
+[
+  { "code": "electric", "nameTh": "ไฟฟ้า" },
+  { "code": "water", "nameTh": "น้ำประปา" },
+  { "code": "road", "nameTh": "ถนน" },
+  { "code": "waste", "nameTh": "ขยะ" },
+  { "code": "other", "nameTh": "อื่นๆ" }
+]
