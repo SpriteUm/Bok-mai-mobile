@@ -5,19 +5,19 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../firebase_options.dart';
+
 const functionsRegion = 'asia-southeast1';
 
-/// เริ่ม Firebase คืนค่า false ถ้ายังไม่ได้รัน `flutterfire configure`
-/// (แอปยังรันด้วยข้อมูลจำลองได้)
+/// เริ่ม Firebase คืนค่า false ถ้า init ไม่สำเร็จ (แอปยังรันด้วยข้อมูลจำลองได้)
 ///
 /// ต่อ emulator ด้วย `flutter run --dart-define=EMULATOR_HOST=10.0.2.2`
 /// (iOS Simulator / Web / Desktop ใช้ localhost)
 Future<bool> initFirebase() async {
   try {
-    // หลังรัน `flutterfire configure` ให้ส่ง options: DefaultFirebaseOptions.currentPlatform
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   } catch (e) {
-    debugPrint('Firebase ยังไม่ได้ตั้งค่า (รัน `flutterfire configure`): $e');
+    debugPrint('เริ่ม Firebase ไม่สำเร็จ: $e');
     return false;
   }
 

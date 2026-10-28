@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1072675464003",
+    "project_id": "bok-mai-db",
+    "storage_bucket": "bok-mai-db.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1072675464003:android:771a4377efc698101945f6",
+        "android_client_info": {
+          "package_name": "com.spriteum.bok_mai_mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1072675464003-ri7bni2ehfqf9fi2jdbni52ce4988d99.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCp1V5zKij83DOA_uzdAn6RrEYtSKUpays"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1072675464003-ri7bni2ehfqf9fi2jdbni52ce4988d99.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
