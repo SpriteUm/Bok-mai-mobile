@@ -2,10 +2,14 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    // admin = มีเอกสาร admins/{uid} (เพิ่มได้จาก Console) หรือมี Custom Claim admin
+    // admin ตั้งได้จาก Firebase Console (ผู้ใช้เขียนฟิลด์พวกนี้เองไม่ได้):
+    //  1) สร้างเอกสาร admins/{uid}
+    //  2) ใส่ role = 'admin' ในเอกสาร users/{uid}
+    //  หรือมี Custom Claim admin บน token
     function isAdmin() {
       return signedIn()
         && (exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin'
             || request.auth.token.get('admin', false) == true);
     }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
@@ -13,10 +17,10 @@ service cloud.firestore {
     // โหมดไม่ใช้ Cloud Functions (แผน Spark): แอปเขียน issues + issues_feed พร้อมกันใน batch
     // แล้วให้ rules ตรวจความถูกต้องแทน
 
-    // รายชื่อ admin: อ่านได้เฉพาะของตัวเอง/admin, เขียนได้เฉพาะ admin (คนแรกสร้างจาก Console)
+    // รายชื่อ admin: อ่านได้เฉพาะของตัวเอง, เขียนจาก Console เท่านั้น (แอปเขียนไม่ได้)
     match /admins/{uid} {
-      allow read: if isOwner(uid) || isAdmin();
-      allow write: if isAdmin();
+      allow read: if isOwner(uid);
+      allow write: if false;
     }
 
     match /users/{uid} {
