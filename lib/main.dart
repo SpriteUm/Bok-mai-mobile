@@ -43,7 +43,8 @@ class AuthGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!ref.watch(firebaseReadyProvider)) {
-      return const _AppHome(isAdmin: true);
+      // โหมดข้อมูลจำลอง: เว็บจอกว้างเข้า Dashboard เหมือนเดิม
+      return const _AppHome(isAdmin: false, demoWideWeb: true);
     }
 
     return ref.watch(authStateProvider).when(
@@ -71,20 +72,26 @@ class _Splash extends StatelessWidget {
 }
 
 class _AppHome extends StatelessWidget {
-  const _AppHome({required this.isAdmin});
+  const _AppHome({required this.isAdmin, this.demoWideWeb = false});
 
   final bool isAdmin;
+  final bool demoWideWeb;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // admin บนเว็บจอกว้าง (>= 1024px) เข้า Admin Web Dashboard นอกนั้นเข้าแอปผู้ใช้
-        if (isAdmin && kIsWeb && constraints.maxWidth >= 1024) {
-          return const AdminWebDashboardScreen();
-        }
-        return const MainNavigationShell();
-      },
-    );
+    // admin ล็อกอินแล้วเข้า Admin Dashboard ทันที (สลับไปมุมมองผู้ใช้ได้จากปุ่มบนแถบด้านบน)
+    if (isAdmin) return const AdminWebDashboardScreen();
+
+    if (demoWideWeb) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          if (kIsWeb && constraints.maxWidth >= 1024) {
+            return const AdminWebDashboardScreen();
+          }
+          return const MainNavigationShell();
+        },
+      );
+    }
+    return const MainNavigationShell();
   }
 }

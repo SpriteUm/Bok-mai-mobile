@@ -154,7 +154,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
           if (user != null) ...[
             OutlinedButton.icon(
-              onPressed: () => FirebaseAuth.instance.signOut(),
+              onPressed: () {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+                FirebaseAuth.instance.signOut();
+              },
               icon: const Icon(Icons.logout_rounded),
               label: const Text('ออกจากระบบ'),
               style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),

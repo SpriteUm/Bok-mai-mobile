@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:bok_mai_mobile/features/navigation/screens/main_navigation_shell.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -226,11 +227,22 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.phone_iphone_rounded),
+            tooltip: 'สลับไปมุมมองผู้ใช้',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MainNavigationShell()),
+            ),
+          ),
           if (ref.watch(firebaseReadyProvider)) ...[
             IconButton(
               icon: const Icon(Icons.logout_rounded),
               tooltip: 'ออกจากระบบ',
-              onPressed: () => FirebaseAuth.instance.signOut(),
+              onPressed: () {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+                FirebaseAuth.instance.signOut();
+              },
             ),
           ],
           IconButton(
@@ -246,7 +258,7 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
           const SizedBox(width: 16),
         ],
       ),
-      body: Row(
+      body: _responsiveBody(Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Left Main Content (Stats + Filter + Table)
@@ -470,7 +482,21 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
               ),
             ),
         ],
-      ),
+      )),
+    );
+  }
+
+  /// Dashboard ออกแบบสำหรับจอกว้าง: ถ้าจอแคบกว่า 1100px ให้เลื่อนแนวนอนแทนการล้น
+  Widget _responsiveBody(Widget content) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const minWidth = 1100.0;
+        if (constraints.maxWidth >= minWidth) return content;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(width: minWidth, child: content),
+        );
+      },
     );
   }
 
