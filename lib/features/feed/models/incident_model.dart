@@ -65,7 +65,6 @@ class IncidentModel {
   final double latitude;
   final double longitude;
   final List<String> imageUrls;
-  final List<String> imagePaths; // path ใน Cloud Storage (imageUrls ได้จาก getDownloadURL)
   final IncidentUrgency urgency;
   final int upvoteCount;
   final bool hasUpvoted;
@@ -81,7 +80,6 @@ class IncidentModel {
     required this.latitude,
     required this.longitude,
     required this.imageUrls,
-    this.imagePaths = const [],
     this.urgency = IncidentUrgency.medium,
     required this.upvoteCount,
     this.hasUpvoted = false,
@@ -98,7 +96,6 @@ class IncidentModel {
     double? latitude,
     double? longitude,
     List<String>? imageUrls,
-    List<String>? imagePaths,
     IncidentUrgency? urgency,
     int? upvoteCount,
     bool? hasUpvoted,
@@ -114,7 +111,6 @@ class IncidentModel {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       imageUrls: imageUrls ?? this.imageUrls,
-      imagePaths: imagePaths ?? this.imagePaths,
       urgency: urgency ?? this.urgency,
       upvoteCount: upvoteCount ?? this.upvoteCount,
       hasUpvoted: hasUpvoted ?? this.hasUpvoted,
@@ -123,17 +119,17 @@ class IncidentModel {
   }
 
   /// สร้างจากเอกสารใน `issues_feed` (หรือ `issues`)
-  /// [imageUrls] ต้อง resolve จาก Storage path ภายนอก (getDownloadURL)
+  /// รูปเก็บเป็นลิงก์ใน `images: [{url, kind}]`
   factory IncidentModel.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc, {
-    List<String> imageUrls = const [],
     bool hasUpvoted = false,
   }) {
     final data = doc.data() ?? const <String, dynamic>{};
     final location = data['location'] as GeoPoint?;
-    final images = (data['images'] as List? ?? const [])
-        .map((e) => (e as Map)['path'] as String)
-        .toList();
+    final imageUrls = [
+      for (final e in data['images'] as List? ?? const [])
+        if ((e as Map)['url'] is String) e['url'] as String,
+    ];
     return IncidentModel(
       id: doc.id,
       title: data['title'] as String? ?? '',
@@ -145,7 +141,6 @@ class IncidentModel {
       latitude: location?.latitude ?? 0,
       longitude: location?.longitude ?? 0,
       imageUrls: imageUrls,
-      imagePaths: images,
       upvoteCount: (data['reportCount'] as num?)?.toInt() ?? 1,
       hasUpvoted: hasUpvoted,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -153,13 +148,20 @@ class IncidentModel {
   }
 
   /// ข้อมูลสำหรับสร้างเรื่องใหม่ใน `issues` ให้ตรงกับ firestore.rules
-  /// [geohash] คำนวณจากพิกัดโดยผู้เรียก, [imagePaths] เช่น `reports/{issueId}/xxx.jpg`
+  /// [geohash] คำนวณจากพิกัดโดยผู้เรียก, [imageUrls] เป็นลิงก์รูปที่อัปโหลดไว้แล้ว
   Map<String, dynamic> toNewIssueMap({
     required String reporterId,
     required String geohash,
   }) {
     return {
       'reporterId': reporterId,
+      ...toFeedMap(geohash: geohash),
+    };
+  }
+
+  /// สำเนาสาธารณะสำหรับ `issues_feed` (ไม่มี reporterId)
+  Map<String, dynamic> toFeedMap({required String geohash}) {
+    return {
       'categoryCode': category.code,
       'title': title,
       'description': description,
@@ -170,7 +172,7 @@ class IncidentModel {
       'addressText': locationAddress,
       'reportCount': 1,
       'images': [
-        for (final path in imagePaths) {'path': path, 'kind': 'report'},
+        for (final url in imageUrls) {'url': url, 'kind': 'report'},
       ],
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),

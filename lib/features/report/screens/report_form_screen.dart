@@ -2,17 +2,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
+import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:bok_mai_mobile/features/feed/providers/feed_provider.dart';
-
-enum IncidentUrgency {
-  low,
-  medium,
-  high,
-}
 
 class ReportFormScreen extends ConsumerStatefulWidget {
   const ReportFormScreen({super.key});
@@ -99,37 +95,76 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     });
   }
 
-  void _submitReport() {
-    if (!_formKey.currentState!.validate()) return;
+  bool _submitting = false;
 
-    final newIncident = IncidentModel(
-      id: 'inc-${DateTime.now().millisecondsSinceEpoch}',
+  /// พิกัดปัจจุบัน ถ้าไม่ได้สิทธิ์/ปิด GPS ใช้พิกัดกลางลาดกระบังแทน
+  Future<({double lat, double lng})> _currentPosition() async {
+    const fallback = (lat: 13.7299, lng: 100.7782);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return fallback;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return fallback;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(timeLimit: Duration(seconds: 8)),
+      );
+      return (lat: pos.latitude, lng: pos.longitude);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  Future<void> _submitReport() async {
+    if (!_formKey.currentState!.validate() || _submitting) return;
+    setState(() => _submitting = true);
+
+    final position = await _currentPosition();
+    final draft = IncidentModel(
+      id: '',
       title: _titleController.text.trim(),
       description: _descController.text.trim(),
       category: _selectedCategory,
       status: IncidentStatus.pending,
+      urgency: _selectedUrgency,
       locationAddress: _locationController.text.trim(),
-      latitude: 13.7299 + (0.002 * (_selectedImages.length + 1)),
-      longitude: 100.7782 - (0.002 * (_selectedImages.length + 1)),
-      imageUrls: [
-        'https://images.unsplash.com/photo-1541888946425-d0fbb186f5f7?auto=format&fit=crop&w=800&q=80',
-      ],
+      latitude: position.lat,
+      longitude: position.lng,
+      // TODO: อัปโหลดรูปไปที่เก็บรูปแล้วใส่ลิงก์ที่นี่ (ตอนนี้ส่งเฉพาะข้อความ)
+      imageUrls: const [],
       upvoteCount: 1,
       hasUpvoted: true,
       createdAt: DateTime.now(),
     );
 
-    // Prepend to Riverpod Feed
-    ref.read(incidentFeedProvider.notifier).state = [
-      newIncident,
-      ...ref.read(incidentFeedProvider),
-    ];
+    try {
+      if (ref.read(firebaseReadyProvider)) {
+        await ref.read(incidentRepositoryProvider).createIssue(draft);
+      } else {
+        // โหมดข้อมูลจำลอง (Firebase ไม่พร้อม)
+        ref.read(incidentFeedProvider.notifier).addLocal(
+              draft.copyWith(id: 'inc-${DateTime.now().millisecondsSinceEpoch}'),
+            );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $e')),
+      );
+      return;
+    }
 
+    if (!mounted) return;
     Navigator.pop(context);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
+      const SnackBar(
+        content: Row(
           children: [
             Icon(Icons.check_circle_rounded, color: Colors.white),
             SizedBox(width: 8),
@@ -482,7 +517,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
 
             // Submit Button
             FilledButton.icon(
-              onPressed: _submitReport,
+              onPressed: _submitting ? null : _submitReport,
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 minimumSize: const Size.fromHeight(50),

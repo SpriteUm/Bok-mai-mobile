@@ -1,3 +1,4 @@
+import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -120,14 +121,32 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                 child: const Text('ยกเลิก'),
               ),
               FilledButton(
-                onPressed: () {
-                  ref.read(incidentFeedProvider.notifier).state = [
-                    for (final inc in ref.read(incidentFeedProvider))
-                      if (inc.id == incident.id)
-                        inc.copyWith(status: newStatus)
-                      else
-                        inc,
-                  ];
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  if (ref.read(firebaseReadyProvider)) {
+                    // เขียนลง Firestore (ต้องเป็น admin ตาม Custom Claim) Feed อัปเดตเองผ่าน stream
+                    try {
+                      await ref.read(incidentRepositoryProvider).adminUpdateStatus(
+                            issueId: incident.id,
+                            status: newStatus,
+                            note: _noteController.text.trim(),
+                          );
+                    } catch (e) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('อัปเดตสถานะไม่สำเร็จ: $e')),
+                      );
+                      return;
+                    }
+                  } else {
+                    ref.read(incidentFeedProvider.notifier).state = [
+                      for (final inc in ref.read(incidentFeedProvider))
+                        if (inc.id == incident.id)
+                          inc.copyWith(status: newStatus)
+                        else
+                          inc,
+                    ];
+                  }
+                  if (!ctx.mounted) return;
                   Navigator.pop(ctx);
                   setState(() {
                     if (_selectedIncidentForManage?.id == incident.id) {

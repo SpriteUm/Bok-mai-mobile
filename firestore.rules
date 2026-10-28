@@ -4,6 +4,10 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function isAdmin()  { return signedIn() && request.auth.token.admin == true; }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function doc(path) { return /databases/$(database)/documents/$(path); }
+
+    // โหมดไม่ใช้ Cloud Functions (แผน Spark): แอปเขียน issues + issues_feed พร้อมกันใน batch
+    // แล้วให้ rules ตรวจความถูกต้องแทน
 
     match /users/{uid} {
       allow read: if isOwner(uid) || isAdmin();
@@ -17,15 +21,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ---------- issues (ข้อมูลเต็ม มี reporterId) ----------
     match /issues/{issueId} {
       allow read: if isOwner(resource.data.reporterId) || isAdmin();
+
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
           'reporterId', 'categoryCode', 'title', 'description', 'urgency', 'status',
           'location', 'geohash', 'addressText', 'reportCount', 'images',
           'createdAt', 'updatedAt'])
         && request.resource.data.reporterId == request.auth.uid
-        && exists(/databases/$(database)/documents/categories/$(request.resource.data.categoryCode))
+        && exists(doc('categories/' + request.resource.data.categoryCode))
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
         && request.resource.data.description is string
@@ -37,25 +43,107 @@ service cloud.firestore {
         && request.resource.data.geohash is string
         && request.resource.data.images is list && request.resource.data.images.size() <= 5
         && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time;
-      allow update, delete: if false;
+        && request.resource.data.updatedAt == request.time
+        // ต้องสร้างสำเนาใน issues_feed ใน batch เดียวกัน
+        && existsAfter(doc('issues_feed/' + issueId));
 
+      // admin เปลี่ยนสถานะ / แนบรูปหลังแก้ไข
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'images', 'updatedAt'])
+        && request.resource.data.status in ['pending', 'in_progress', 'resolved']
+        && request.resource.data.updatedAt == request.time;
+
+      // เจ้าของกด Re-open: resolved -> in_progress
+      allow update: if isOwner(resource.data.reporterId)
+        && resource.data.status == 'resolved'
+        && request.resource.data.status == 'in_progress'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'images', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+
+      // Timeline: admin เขียนเมื่อเปลี่ยนสถานะ, เจ้าของเขียนตอน Re-open
       match /updates/{updateId} {
-        allow read: if isAdmin() || isOwner(
-          get(/databases/$(database)/documents/issues/$(issueId)).data.reporterId);
-        allow write: if false;
+        allow read: if isAdmin() || isOwner(get(doc('issues/' + issueId)).data.reporterId);
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly(['actorId', 'status', 'note', 'createdAt'])
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.status in ['pending', 'in_progress', 'resolved']
+          && request.resource.data.note is string && request.resource.data.note.size() <= 1000
+          && request.resource.data.createdAt == request.time
+          && (isAdmin() || isOwner(get(doc('issues/' + issueId)).data.reporterId));
+        allow update, delete: if false;
       }
     }
 
+    // ---------- issues_feed (สำเนาสาธารณะ ไม่มี reporterId) ----------
     match /issues_feed/{issueId} {
       allow read: if signedIn();
-      allow write: if false;
+
+      allow create: if signedIn()
+        && !('reporterId' in request.resource.data)
+        && request.resource.data.keys().hasOnly([
+          'categoryCode', 'title', 'description', 'urgency', 'status',
+          'location', 'geohash', 'addressText', 'reportCount', 'images',
+          'createdAt', 'updatedAt'])
+        && getAfter(doc('issues/' + issueId)).data.reporterId == request.auth.uid
+        && request.resource.data.categoryCode == getAfter(doc('issues/' + issueId)).data.categoryCode
+        && request.resource.data.title == getAfter(doc('issues/' + issueId)).data.title
+        && request.resource.data.location == getAfter(doc('issues/' + issueId)).data.location
+        && request.resource.data.status == 'pending'
+        && request.resource.data.reportCount == 1
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      // admin เปลี่ยนสถานะ
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'images', 'updatedAt'])
+        && request.resource.data.status in ['pending', 'in_progress', 'resolved']
+        && request.resource.data.updatedAt == request.time;
+
+      // เจ้าของ Re-open
+      allow update: if get(doc('issues/' + issueId)).data.reporterId == request.auth.uid
+        && resource.data.status == 'resolved'
+        && request.resource.data.status == 'in_progress'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'images', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time;
+
+      // +1 : ต้องสร้าง follower ใน batch เดียวกัน และห้ามเจ้าของเรื่องกดเอง
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount', 'updatedAt'])
+        && request.resource.data.reportCount == resource.data.reportCount + 1
+        && request.resource.data.updatedAt == request.time
+        && get(doc('issues/' + issueId)).data.reporterId != request.auth.uid
+        && !exists(doc('issues_feed/' + issueId + '/followers/' + request.auth.uid))
+        && existsAfter(doc('issues_feed/' + issueId + '/followers/' + request.auth.uid));
+
+      // ยกเลิก +1
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount', 'updatedAt'])
+        && request.resource.data.reportCount == resource.data.reportCount - 1
+        && request.resource.data.reportCount >= 1
+        && request.resource.data.updatedAt == request.time
+        && exists(doc('issues_feed/' + issueId + '/followers/' + request.auth.uid))
+        && !existsAfter(doc('issues_feed/' + issueId + '/followers/' + request.auth.uid));
+
+      allow delete: if false;
+
       match /followers/{uid} {
         allow read: if isOwner(uid);
-        allow write: if false;
+        // เพิ่ม/ลบได้เฉพาะเมื่อ reportCount ของเรื่องเปลี่ยน +1 / -1 ใน batch เดียวกัน
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['createdAt'])
+          && request.resource.data.createdAt == request.time
+          && getAfter(doc('issues_feed/' + issueId)).data.reportCount
+            == get(doc('issues_feed/' + issueId)).data.reportCount + 1;
+        allow delete: if isOwner(uid)
+          && getAfter(doc('issues_feed/' + issueId)).data.reportCount
+            == get(doc('issues_feed/' + issueId)).data.reportCount - 1;
+        allow update: if false;
       }
     }
 
+    // ---------- feedback ----------
     match /feedback/{id} {
       allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
       // ให้คะแนนได้เฉพาะเจ้าของเรื่องที่ resolved แล้ว
@@ -63,8 +151,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(
           ['issueId', 'userId', 'rating', 'tags', 'comment', 'createdAt'])
         && request.resource.data.userId == request.auth.uid
-        && get(/databases/$(database)/documents/issues/$(request.resource.data.issueId)).data.reporterId == request.auth.uid
-        && get(/databases/$(database)/documents/issues/$(request.resource.data.issueId)).data.status == 'resolved'
+        && get(doc('issues/' + request.resource.data.issueId)).data.reporterId == request.auth.uid
+        && get(doc('issues/' + request.resource.data.issueId)).data.status == 'resolved'
         && request.resource.data.rating is int
         && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
         && request.resource.data.createdAt == request.time;

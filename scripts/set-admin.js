@@ -12,7 +12,7 @@ if (!email) {
   process.exit(1);
 }
 
-initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'bok-mai-dev' });
+initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'bok-mai-db' });
 
 (async () => {
   const auth = getAuth();
