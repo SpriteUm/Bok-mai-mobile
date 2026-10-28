@@ -30,15 +30,17 @@ final ensureProfileProvider = FutureProvider<void>((ref) async {
   }
 });
 
-/// สิทธิ์ admin: มีเอกสาร admins/{uid} ใน Firestore (เพิ่ม/ถอนได้จาก Console)
+/// สิทธิ์ admin: มีเอกสาร admins/{uid} หรือ users/{uid}.role == admin (ตั้งจาก Console)
 /// หรือมี Custom Claim `admin` บน ID token
 final isAdminProvider = FutureProvider<bool>((ref) async {
   final user = ref.watch(authStateProvider).valueOrNull;
   if (user == null) return false;
 
   try {
-    final doc = await FirebaseFirestore.instance.collection('admins').doc(user.uid).get();
-    if (doc.exists) return true;
+    final db = FirebaseFirestore.instance;
+    if ((await db.collection('admins').doc(user.uid).get()).exists) return true;
+    final profile = await db.collection('users').doc(user.uid).get();
+    if (profile.data()?['role'] == 'admin') return true;
   } on FirebaseException catch (_) {
     // อ่านไม่ได้ถือว่าไม่ใช่ admin
   }

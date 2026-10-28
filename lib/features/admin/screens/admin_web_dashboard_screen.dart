@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:bok_mai_mobile/features/admin/screens/role_management_screen.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -228,14 +227,6 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
         ),
         actions: [
           if (ref.watch(firebaseReadyProvider)) ...[
-            IconButton(
-              icon: const Icon(Icons.manage_accounts_rounded),
-              tooltip: 'จัดการสิทธิ์ผู้ใช้',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RoleManagementScreen()),
-              ),
-            ),
             IconButton(
               icon: const Icon(Icons.logout_rounded),
               tooltip: 'ออกจากระบบ',
