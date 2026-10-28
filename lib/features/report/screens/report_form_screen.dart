@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:bok_mai_mobile/core/constants/cloudinary_config.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
+import 'package:bok_mai_mobile/data/services/image_upload_service.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
@@ -124,6 +126,25 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     setState(() => _submitting = true);
 
     final position = await _currentPosition();
+
+    // อัปโหลดรูปไป Cloudinary แล้วเก็บเป็นลิงก์ (สูงสุด 5 รูปตาม firestore.rules)
+    var imageUrls = <String>[];
+    String? imageWarning;
+    if (_selectedImages.isNotEmpty && ref.read(firebaseReadyProvider)) {
+      if (CloudinaryConfig.isConfigured) {
+        try {
+          imageUrls = await ImageUploadService().uploadAll(_selectedImages.take(5));
+        } catch (e) {
+          if (!mounted) return;
+          setState(() => _submitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+          return;
+        }
+      } else {
+        imageWarning = 'ส่งรายงานแล้ว แต่ยังไม่ได้ตั้งค่า Cloudinary จึงไม่ได้แนบรูป';
+      }
+    }
+
     final draft = IncidentModel(
       id: '',
       title: _titleController.text.trim(),
@@ -134,8 +155,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
       locationAddress: _locationController.text.trim(),
       latitude: position.lat,
       longitude: position.lng,
-      // TODO: อัปโหลดรูปไปที่เก็บรูปแล้วใส่ลิงก์ที่นี่ (ตอนนี้ส่งเฉพาะข้อความ)
-      imageUrls: const [],
+      imageUrls: imageUrls,
       upvoteCount: 1,
       hasUpvoted: true,
       createdAt: DateTime.now(),
@@ -163,12 +183,14 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     Navigator.pop(context);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Row(
           children: [
-            Icon(Icons.check_circle_rounded, color: Colors.white),
-            SizedBox(width: 8),
-            Text('ส่งรายงานปัญหาสำเร็จ! เจ้าหน้าที่กำลังรับเรื่อง'),
+            const Icon(Icons.check_circle_rounded, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(imageWarning ?? 'ส่งรายงานปัญหาสำเร็จ! เจ้าหน้าที่กำลังรับเรื่อง'),
+            ),
           ],
         ),
         backgroundColor: AppColors.statusResolved,
