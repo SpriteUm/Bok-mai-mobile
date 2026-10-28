@@ -2,6 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:bok_mai_mobile/features/navigation/screens/main_navigation_shell.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:bok_mai_mobile/core/constants/cloudinary_config.dart';
+import 'package:bok_mai_mobile/data/services/image_upload_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
@@ -34,6 +37,7 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
 
   void _showUpdateStatusDialog(IncidentModel incident) {
     IncidentStatus newStatus = incident.status;
+    XFile? afterImage;
     _noteController.text = '';
 
     showDialog(
@@ -106,13 +110,28 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('เปิดฟังก์ชันแนบภาพหลักฐานหลังแก้ไข (รูป After)')),
-                      );
+                    onPressed: () async {
+                      try {
+                        final picked = await ImagePicker().pickImage(
+                          source: ImageSource.gallery,
+                          maxWidth: 1600,
+                          imageQuality: 85,
+                        );
+                        if (picked != null) setDialogState(() => afterImage = picked);
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('เลือกรูปภาพไม่สำเร็จ: $e')),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.add_photo_alternate_rounded),
-                    label: const Text('แนบภาพถ่ายผลงานหลังแก้ไข (Before / After)'),
+                    label: Text(
+                      afterImage == null
+                          ? 'แนบภาพถ่ายผลงานหลังแก้ไข (After)'
+                          : 'เลือกแล้ว: ${afterImage!.name} (กดเพื่อเปลี่ยน)',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),
@@ -128,10 +147,18 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                   if (ref.read(firebaseReadyProvider)) {
                     // เขียนลง Firestore (ต้องเป็น admin ตาม Custom Claim) Feed อัปเดตเองผ่าน stream
                     try {
+                      var afterUrls = <String>[];
+                      if (afterImage != null) {
+                        if (!CloudinaryConfig.isConfigured) {
+                          throw ImageUploadException('ยังไม่ได้ตั้งค่า Cloudinary จึงแนบรูปไม่ได้');
+                        }
+                        afterUrls = [await ImageUploadService().upload(afterImage!)];
+                      }
                       await ref.read(incidentRepositoryProvider).adminUpdateStatus(
                             issueId: incident.id,
                             status: newStatus,
                             note: _noteController.text.trim(),
+                            resolutionImageUrls: afterUrls,
                           );
                     } catch (e) {
                       messenger.showSnackBar(
