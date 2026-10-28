@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,10 +9,19 @@ final authStateProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
 });
 
-/// สิทธิ์ admin มาจาก Custom Claim `admin` บน ID token (ตั้งได้จากฝั่งเซิร์ฟเวอร์เท่านั้น)
+/// สิทธิ์ admin: มีเอกสาร admins/{uid} ใน Firestore (เพิ่ม/ถอนได้จาก Console)
+/// หรือมี Custom Claim `admin` บน ID token
 final isAdminProvider = FutureProvider<bool>((ref) async {
   final user = ref.watch(authStateProvider).valueOrNull;
   if (user == null) return false;
+
+  try {
+    final doc = await FirebaseFirestore.instance.collection('admins').doc(user.uid).get();
+    if (doc.exists) return true;
+  } on FirebaseException catch (_) {
+    // อ่านไม่ได้ถือว่าไม่ใช่ admin
+  }
+
   final token = await user.getIdTokenResult(true);
   return token.claims?['admin'] == true;
 });
