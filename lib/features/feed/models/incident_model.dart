@@ -64,7 +64,11 @@ class IncidentModel {
   final String locationAddress;
   final double latitude;
   final double longitude;
+  /// รูปที่ผู้แจ้งแนบ (ใช้เป็นรูปปก)
   final List<String> imageUrls;
+
+  /// รูปหลังแก้ไข (After) ที่เจ้าหน้าที่ส่งกลับมา แสดงแยกเป็น feedback
+  final List<String> resolutionImageUrls;
   final IncidentUrgency urgency;
   final int upvoteCount;
   final bool hasUpvoted;
@@ -80,6 +84,7 @@ class IncidentModel {
     required this.latitude,
     required this.longitude,
     required this.imageUrls,
+    this.resolutionImageUrls = const [],
     this.urgency = IncidentUrgency.medium,
     required this.upvoteCount,
     this.hasUpvoted = false,
@@ -96,6 +101,7 @@ class IncidentModel {
     double? latitude,
     double? longitude,
     List<String>? imageUrls,
+    List<String>? resolutionImageUrls,
     IncidentUrgency? urgency,
     int? upvoteCount,
     bool? hasUpvoted,
@@ -111,6 +117,7 @@ class IncidentModel {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       imageUrls: imageUrls ?? this.imageUrls,
+      resolutionImageUrls: resolutionImageUrls ?? this.resolutionImageUrls,
       urgency: urgency ?? this.urgency,
       upvoteCount: upvoteCount ?? this.upvoteCount,
       hasUpvoted: hasUpvoted ?? this.hasUpvoted,
@@ -119,17 +126,14 @@ class IncidentModel {
   }
 
   /// สร้างจากเอกสารใน `issues_feed` (หรือ `issues`)
-  /// รูปเก็บเป็นลิงก์ใน `images: [{url, kind}]`
+  /// รูปเก็บเป็นลิงก์ใน `images: [{url, kind}]` แยกรูปผู้แจ้ง (report) กับรูปหลังแก้ไข (resolution)
   factory IncidentModel.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc, {
     bool hasUpvoted = false,
   }) {
     final data = doc.data() ?? const <String, dynamic>{};
     final location = data['location'] as GeoPoint?;
-    final imageUrls = [
-      for (final e in data['images'] as List? ?? const [])
-        if ((e as Map)['url'] is String) e['url'] as String,
-    ];
+    final (imageUrls, resolutionImageUrls) = splitImages(data['images'] as List?);
     return IncidentModel(
       id: doc.id,
       title: data['title'] as String? ?? '',
@@ -141,10 +145,22 @@ class IncidentModel {
       latitude: location?.latitude ?? 0,
       longitude: location?.longitude ?? 0,
       imageUrls: imageUrls,
+      resolutionImageUrls: resolutionImageUrls,
       upvoteCount: (data['reportCount'] as num?)?.toInt() ?? 1,
       hasUpvoted: hasUpvoted,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
+  }
+
+  /// แยก `images: [{url, kind}]` เป็น (รูปผู้แจ้ง, รูปหลังแก้ไข) ข้ามรายการที่ไม่มี url
+  static (List<String>, List<String>) splitImages(List? images) {
+    final report = <String>[];
+    final resolution = <String>[];
+    for (final e in images ?? const []) {
+      if (e is! Map || e['url'] is! String) continue;
+      (e['kind'] == 'resolution' ? resolution : report).add(e['url'] as String);
+    }
+    return (report, resolution);
   }
 
   /// ข้อมูลสำหรับสร้างเรื่องใหม่ใน `issues` ให้ตรงกับ firestore.rules

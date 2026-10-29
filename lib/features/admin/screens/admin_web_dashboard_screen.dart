@@ -36,55 +36,77 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
     super.dispose();
   }
 
-  /// ส่งข้อความถึงผู้แจ้งโดยไม่เปลี่ยนสถานะ (ลงชื่อแอดมินที่ส่ง)
+  /// ส่งข้อความ (และภาพหลังแก้ไขถ้ามี) ถึงผู้แจ้งโดยไม่เปลี่ยนสถานะ (ลงชื่อแอดมินที่ส่ง)
   void _showFeedbackDialog(IncidentModel incident) {
     final controller = TextEditingController();
     final messenger = ScaffoldMessenger.of(context);
+    XFile? photo;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('ส่ง Feedback ถึงผู้แจ้ง'),
-        content: SizedBox(
-          width: 460,
-          child: TextField(
-            controller: controller,
-            maxLines: 4,
-            maxLength: 1000,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'ข้อความถึงผู้แจ้ง จะลงชื่อของคุณกำกับ',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          scrollable: true,
+          title: const Text('ส่ง Feedback ถึงผู้แจ้ง'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: controller,
+                  maxLines: 4,
+                  maxLength: 1000,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: 'ข้อความถึงผู้แจ้ง จะลงชื่อของคุณกำกับ',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    try {
+                      final picked = await ImagePicker().pickImage(
+                        source: ImageSource.gallery,
+                        maxWidth: 1600,
+                        imageQuality: 85,
+                      );
+                      if (picked != null) setDialogState(() => photo = picked);
+                    } catch (e) {
+                      messenger.showSnackBar(SnackBar(content: Text('เลือกรูปภาพไม่สำเร็จ: $e')));
+                    }
+                  },
+                  icon: const Icon(Icons.add_photo_alternate_rounded),
+                  label: Text(
+                    photo == null
+                        ? 'แนบภาพผลงานหลังแก้ไข (ไม่บังคับ)'
+                        : 'เลือกแล้ว: ${photo!.name} (กดเพื่อเปลี่ยน)',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
+            FilledButton(
+              onPressed: () {
+                final note = controller.text.trim();
+                if (note.isEmpty && photo == null) return;
+                if (!ref.read(firebaseReadyProvider)) {
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('ส่งได้เมื่อเชื่อมต่อ Firebase แล้วเท่านั้น')),
+                  );
+                  return;
+                }
+                // ปิดทันทีแล้วส่งเบื้องหลัง กันกดซ้ำ
+                Navigator.pop(ctx);
+                _submitFeedback(incident, note, photo);
+              },
+              child: const Text('ส่ง'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
-          FilledButton(
-            onPressed: () async {
-              final note = controller.text.trim();
-              if (note.isEmpty) return;
-              if (!ref.read(firebaseReadyProvider)) {
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('ส่งได้เมื่อเชื่อมต่อ Firebase แล้วเท่านั้น')),
-                );
-                return;
-              }
-              try {
-                await ref.read(incidentRepositoryProvider).adminSendFeedback(
-                      issueId: incident.id,
-                      status: incident.status,
-                      note: note,
-                    );
-              } catch (e) {
-                messenger.showSnackBar(SnackBar(content: Text('ส่ง Feedback ไม่สำเร็จ: $e')));
-                return;
-              }
-              if (ctx.mounted) Navigator.pop(ctx);
-              messenger.showSnackBar(const SnackBar(content: Text('ส่ง Feedback แล้ว')));
-            },
-            child: const Text('ส่ง'),
-          ),
-        ],
       ),
     ).whenComplete(controller.dispose);
   }
@@ -99,6 +121,7 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
+            scrollable: true,
             title: Row(
               children: [
                 const Icon(Icons.manage_accounts_rounded, color: AppColors.primary),
@@ -122,6 +145,7 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                   const SizedBox(height: 8),
                   DropdownButtonFormField<IncidentStatus>(
                     value: newStatus,
+                    isExpanded: true,
                     decoration: InputDecoration(
                       filled: true,
                       fillColor: AppColors.surfaceContainerHigh,
@@ -196,52 +220,12 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                 child: const Text('ยกเลิก'),
               ),
               FilledButton(
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  if (ref.read(firebaseReadyProvider)) {
-                    // เขียนลง Firestore (ต้องเป็น admin ตาม Custom Claim) Feed อัปเดตเองผ่าน stream
-                    try {
-                      var afterUrls = <String>[];
-                      if (afterImage != null) {
-                        if (!CloudinaryConfig.isConfigured) {
-                          throw ImageUploadException('ยังไม่ได้ตั้งค่า Cloudinary จึงแนบรูปไม่ได้');
-                        }
-                        afterUrls = [await ImageUploadService().upload(afterImage!)];
-                      }
-                      await ref.read(incidentRepositoryProvider).adminUpdateStatus(
-                            issueId: incident.id,
-                            status: newStatus,
-                            note: _noteController.text.trim(),
-                            resolutionImageUrls: afterUrls,
-                          );
-                    } catch (e) {
-                      messenger.showSnackBar(
-                        SnackBar(content: Text('อัปเดตสถานะไม่สำเร็จ: $e')),
-                      );
-                      return;
-                    }
-                  } else {
-                    ref.read(incidentFeedProvider.notifier).state = [
-                      for (final inc in ref.read(incidentFeedProvider))
-                        if (inc.id == incident.id)
-                          inc.copyWith(status: newStatus)
-                        else
-                          inc,
-                    ];
-                  }
-                  if (!ctx.mounted) return;
+                onPressed: () {
+                  // ปิดหน้าต่างทันทีแล้วส่งเบื้องหลัง กันกดซ้ำ (เคยส่งเบิ้ลและจอแดงเพราะใช้ context ของ dialog ที่ปิดไปแล้ว)
+                  final note = _noteController.text.trim();
+                  final photo = afterImage;
                   Navigator.pop(ctx);
-                  setState(() {
-                    if (_selectedIncidentForManage?.id == incident.id) {
-                      _selectedIncidentForManage = incident.copyWith(status: newStatus);
-                    }
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('อัปเดตสถานะปัญหาเป็น "${newStatus.name}" เรียบร้อย (Realtime)'),
-                      backgroundColor: AppColors.statusResolved,
-                    ),
-                  );
+                  _submitStatusUpdate(incident, newStatus, note, photo);
                 },
                 child: const Text('บันทึกการเปลี่ยนแปลง'),
               ),
@@ -252,9 +236,106 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
     );
   }
 
+  /// ส่งงานเบื้องหลังหลังปิดหน้าต่าง: แจ้ง "กำลังส่ง" ทันที แล้วแจ้งผลเมื่อเสร็จ
+  Future<void> _runInBackground({
+    required String progress,
+    required String success,
+    required String failure,
+    required Future<void> Function() task,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(progress)),
+          ],
+        ),
+        duration: const Duration(minutes: 2),
+      ));
+    try {
+      await task();
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(success), backgroundColor: AppColors.statusResolved));
+    } catch (e) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('$failure: $e'), backgroundColor: AppColors.error));
+    }
+  }
+
+  Future<String> _uploadAfterPhoto(XFile photo) {
+    if (!CloudinaryConfig.isConfigured) {
+      throw ImageUploadException('ยังไม่ได้ตั้งค่า Cloudinary จึงแนบรูปไม่ได้');
+    }
+    return ImageUploadService().upload(photo);
+  }
+
+  void _submitStatusUpdate(IncidentModel incident, IncidentStatus newStatus, String note, XFile? photo) {
+    if (!ref.read(firebaseReadyProvider)) {
+      // โหมดข้อมูลจำลอง
+      ref.read(incidentFeedProvider.notifier).state = [
+        for (final inc in ref.read(incidentFeedProvider))
+          if (inc.id == incident.id) inc.copyWith(status: newStatus) else inc,
+      ];
+      return;
+    }
+    _runInBackground(
+      progress: photo == null ? 'กำลังบันทึก...' : 'กำลังอัปโหลดรูปและบันทึก...',
+      success: 'อัปเดตสถานะเป็น "${statusLabelTh(newStatus)}" แล้ว',
+      failure: 'อัปเดตสถานะไม่สำเร็จ',
+      task: () async {
+        final afterUrls = photo == null ? <String>[] : [await _uploadAfterPhoto(photo)];
+        await ref.read(incidentRepositoryProvider).adminUpdateStatus(
+              issueId: incident.id,
+              status: newStatus,
+              note: note,
+              resolutionImageUrls: afterUrls,
+            );
+      },
+    );
+  }
+
+  void _submitFeedback(IncidentModel incident, String note, XFile? photo) {
+    _runInBackground(
+      progress: photo == null ? 'กำลังส่ง Feedback...' : 'กำลังอัปโหลดรูปและส่ง Feedback...',
+      success: 'ส่ง Feedback แล้ว',
+      failure: 'ส่ง Feedback ไม่สำเร็จ',
+      task: () async {
+        final repo = ref.read(incidentRepositoryProvider);
+        if (photo != null) {
+          // สถานะเดิม + ต่อท้ายรูป After + ข้อความลงชื่อ ใน batch เดียว
+          await repo.adminUpdateStatus(
+            issueId: incident.id,
+            status: incident.status,
+            note: note,
+            resolutionImageUrls: [await _uploadAfterPhoto(photo)],
+          );
+        } else {
+          await repo.adminSendFeedback(issueId: incident.id, status: incident.status, note: note);
+        }
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final allIncidents = ref.watch(incidentFeedProvider);
+    // ให้แผงรายละเอียดใช้ข้อมูลล่าสุดจาก stream (เช่น รูป After ที่เพิ่งส่ง)
+    final selectedId = _selectedIncidentForManage?.id;
+    if (selectedId != null) {
+      for (final i in allIncidents) {
+        if (i.id == selectedId) _selectedIncidentForManage = i;
+      }
+    }
     final theme = Theme.of(context);
     final timeFormat = DateFormat('d MMM yyyy, HH:mm น.', 'th');
 
@@ -280,6 +361,7 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
     final pendingCount = allIncidents.where((i) => i.status == IncidentStatus.pending).length;
     final inProgressCount = allIncidents.where((i) => i.status == IncidentStatus.inProgress).length;
     final resolvedCount = allIncidents.where((i) => i.status == IncidentStatus.resolved).length;
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
 
     return Scaffold(
       appBar: AppBar(
@@ -292,18 +374,24 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
               errorBuilder: (_, __, ___) => const Icon(Icons.shield_rounded, color: AppColors.primary),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Bok Mai Admin Portal (ศูนย์บริหารจัดการเรื่องร้องทุกข์)',
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                Text(
-                  'สำหรับเจ้าหน้าที่เทศบาลและผู้ดูแลระบบ',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isWide
+                        ? 'Bok Mai Admin Portal (ศูนย์บริหารจัดการเรื่องร้องทุกข์)'
+                        : 'Bok Mai Admin',
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    isWide ? 'สำหรับเจ้าหน้าที่เทศบาลและผู้ดูแลระบบ' : 'ศูนย์จัดการเรื่องร้องทุกข์',
+                    style: theme.textTheme.bodySmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -326,20 +414,24 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
               },
             ),
           ],
-          IconButton(
-            icon: const Icon(Icons.notifications_none_rounded),
-            tooltip: 'แจ้งเตือนเคสเร่งด่วน (AI Sentiment Alert)',
-            onPressed: () {},
-          ),
-          const SizedBox(width: 12),
-          CircleAvatar(
-            backgroundColor: AppColors.primaryContainer,
-            child: const Icon(Icons.admin_panel_settings_rounded, color: AppColors.primary),
-          ),
-          const SizedBox(width: 16),
+          if (isWide) ...[
+            IconButton(
+              icon: const Icon(Icons.notifications_none_rounded),
+              tooltip: 'แจ้งเตือนเคสเร่งด่วน (AI Sentiment Alert)',
+              onPressed: () {},
+            ),
+            const SizedBox(width: 12),
+            CircleAvatar(
+              backgroundColor: AppColors.primaryContainer,
+              child: const Icon(Icons.admin_panel_settings_rounded, color: AppColors.primary),
+            ),
+          ],
+          SizedBox(width: isWide ? 16 : 4),
         ],
       ),
-      body: _responsiveBody(Row(
+      body: !isWide
+          ? _mobileBody(filtered, [totalCount, pendingCount, inProgressCount, resolvedCount])
+          : _responsiveBody(Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Left Main Content (Stats + Filter + Table)
@@ -531,63 +623,236 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                     ],
                   ),
                   const SizedBox(height: 12),
-                  if (_selectedIncidentForManage!.imageUrls.isNotEmpty) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      child: Image.network(
-                        _selectedIncidentForManage!.imageUrls.first,
-                        height: 180,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const SizedBox(
-                          height: 180,
-                          child: Center(child: Icon(Icons.broken_image_rounded, size: 48)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  Text(
-                    _selectedIncidentForManage!.title,
-                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  IncidentStatusBadge(status: _selectedIncidentForManage!.status),
-                  const SizedBox(height: 16),
-                  const Text('รายละเอียดที่ประชาชนแจ้ง:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text(_selectedIncidentForManage!.description),
-                  const SizedBox(height: 16),
-                  const Text('พิกัดสถานที่:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text(_selectedIncidentForManage!.locationAddress),
-                  const SizedBox(height: 8),
-                  Text('GPS: ${_selectedIncidentForManage!.latitude}, ${_selectedIncidentForManage!.longitude}',
-                      style: theme.textTheme.bodySmall),
-                  const SizedBox(height: 16),
-                  IncidentUpdatesSection(
-                    incidentId: _selectedIncidentForManage!.id,
-                    editable: true,
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => _showFeedbackDialog(_selectedIncidentForManage!),
-                    icon: const Icon(Icons.forum_rounded),
-                    label: const Text('ส่ง Feedback ถึงผู้แจ้ง'),
-                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: () => _showUpdateStatusDialog(_selectedIncidentForManage!),
-                    icon: const Icon(Icons.edit_note_rounded),
-                    label: const Text('เปลี่ยนสถานะ & บันทึกงาน'),
-                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                  ),
+                  ..._detailChildren(context, _selectedIncidentForManage!),
                 ],
               ),
             ),
         ],
       )),
+    );
+  }
+
+  /// เนื้อหารายละเอียดงาน ใช้ทั้งแผงด้านขวา (จอกว้าง) และ bottom sheet (มือถือ)
+  List<Widget> _detailChildren(BuildContext context, IncidentModel incident) {
+    final theme = Theme.of(context);
+    return [
+      if (incident.imageUrls.isNotEmpty) ...[
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: Image.network(
+            incident.imageUrls.first,
+            height: 180,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox(
+              height: 180,
+              child: Center(child: Icon(Icons.broken_image_rounded, size: 48)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+      Text(
+        incident.title,
+        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+      ),
+      const SizedBox(height: 8),
+      Align(alignment: Alignment.centerLeft, child: IncidentStatusBadge(status: incident.status)),
+      const SizedBox(height: 16),
+      const Text('รายละเอียดที่ประชาชนแจ้ง:', style: TextStyle(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 4),
+      Text(incident.description),
+      const SizedBox(height: 16),
+      const Text('พิกัดสถานที่:', style: TextStyle(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 4),
+      Text(incident.locationAddress),
+      const SizedBox(height: 8),
+      Text('GPS: ${incident.latitude}, ${incident.longitude}', style: theme.textTheme.bodySmall),
+      const SizedBox(height: 16),
+      IncidentUpdatesSection(
+        incidentId: incident.id,
+        resolutionImageUrls: incident.resolutionImageUrls,
+        editable: true,
+      ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: () => _showFeedbackDialog(incident),
+        icon: const Icon(Icons.forum_rounded),
+        label: const Text('ส่ง Feedback ถึงผู้แจ้ง'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+      ),
+      const SizedBox(height: 12),
+      FilledButton.icon(
+        onPressed: () => _showUpdateStatusDialog(incident),
+        icon: const Icon(Icons.edit_note_rounded),
+        label: const Text('เปลี่ยนสถานะ & บันทึกงาน'),
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+      ),
+    ];
+  }
+
+  /// มือถือ: รายละเอียดงานแบบ bottom sheet ที่อัปเดตตาม stream
+  void _openMobileDetail(IncidentModel incident) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 1,
+        builder: (sheetContext, scrollController) => Consumer(
+          builder: (sheetContext, ref, _) {
+            final latest = ref
+                .watch(incidentFeedProvider)
+                .where((i) => i.id == incident.id)
+                .firstOrNull ?? incident;
+            return ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+              children: _detailChildren(sheetContext, latest),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// มือถือ: สถิติ 2×2, ค้นหา/ตัวกรองซ้อนกัน, รายการเป็นการ์ดแทนตาราง
+  Widget _mobileBody(List<IncidentModel> filtered, List<int> counts) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      children: [
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          childAspectRatio: 2.2,
+          children: [
+            _statTile('ทั้งหมด', '${counts[0]}', Icons.folder_open_rounded, AppColors.primary, AppColors.primaryContainer, compact: true),
+            _statTile('รอดำเนินการ', '${counts[1]}', Icons.hourglass_top_rounded, AppColors.statusPending, AppColors.statusPendingContainer, compact: true),
+            _statTile('กำลังซ่อม', '${counts[2]}', Icons.engineering_rounded, AppColors.statusInProgress, AppColors.statusInProgressContainer, compact: true),
+            _statTile('แก้ไขแล้ว', '${counts[3]}', Icons.check_circle_rounded, AppColors.statusResolved, AppColors.statusResolvedContainer, compact: true),
+          ],
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          onChanged: (val) => setState(() => _searchQuery = val.trim()),
+          decoration: InputDecoration(
+            hintText: 'ค้นหาหัวข้อ, รายละเอียด, สถานที่...',
+            prefixIcon: const Icon(Icons.search_rounded),
+            isDense: true,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButton<IncidentStatus?>(
+                value: _selectedStatusFilter,
+                isExpanded: true,
+                hint: const Text('ทุกสถานะ'),
+                items: const [
+                  DropdownMenuItem(value: null, child: Text('สถานะทั้งหมด')),
+                  DropdownMenuItem(value: IncidentStatus.pending, child: Text('⏳ รอดำเนินการ')),
+                  DropdownMenuItem(value: IncidentStatus.inProgress, child: Text('⚙️ กำลังทำ')),
+                  DropdownMenuItem(value: IncidentStatus.resolved, child: Text('✅ แก้ไขแล้ว')),
+                ],
+                onChanged: (val) => setState(() => _selectedStatusFilter = val),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButton<IncidentCategory?>(
+                value: _selectedCategoryFilter,
+                isExpanded: true,
+                hint: const Text('ทุกหมวดหมู่'),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('ทุกหมวดหมู่')),
+                  ...IncidentCategory.values.map(
+                    (c) => DropdownMenuItem(value: c, child: Text(c.name)),
+                  ),
+                ],
+                onChanged: (val) => setState(() => _selectedCategoryFilter = val),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (filtered.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40),
+            child: Center(child: Text('ไม่พบรายการ', style: theme.textTheme.titleMedium)),
+          ),
+        for (final incident in filtered)
+          Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => _openMobileDetail(incident),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: SizedBox(
+                        width: 64,
+                        height: 64,
+                        child: incident.imageUrls.isEmpty
+                            ? const ColoredBox(
+                                color: AppColors.surfaceContainerHigh,
+                                child: Icon(Icons.image_not_supported_rounded, color: AppColors.outline),
+                              )
+                            : Image.network(
+                                incident.imageUrls.first,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_rounded),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            incident.title,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${incident.categoryLabel} · ${incident.locationAddress}',
+                            style: theme.textTheme.bodySmall,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              IncidentStatusBadge(status: incident.status),
+                              const Spacer(),
+                              Text('+${incident.upvoteCount} คน', style: theme.textTheme.bodySmall),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -606,32 +871,43 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
   }
 
   Widget _buildStatCard(String title, String count, IconData icon, Color color, Color containerColor) {
-    return Expanded(
-      child: Card(
-        color: containerColor.withValues(alpha: 0.35),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          side: BorderSide(color: color.withValues(alpha: 0.2)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(AppRadius.md)),
-                child: Icon(icon, color: Colors.white, size: 28),
-              ),
-              const SizedBox(width: 16),
-              Column(
+    return Expanded(child: _statTile(title, count, icon, color, containerColor));
+  }
+
+  Widget _statTile(String title, String count, IconData icon, Color color, Color containerColor,
+      {bool compact = false}) {
+    return Card(
+      margin: compact ? EdgeInsets.zero : null,
+      color: containerColor.withValues(alpha: 0.35),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        side: BorderSide(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(compact ? 10 : 20),
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(compact ? 8 : 12),
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(AppRadius.md)),
+              child: Icon(icon, color: Colors.white, size: compact ? 20 : 28),
+            ),
+            SizedBox(width: compact ? 10 : 16),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(count, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-                  Text(title, style: TextStyle(color: AppColors.onSurfaceVariant, fontSize: 13)),
+                  Text(count, style: TextStyle(fontSize: compact ? 20 : 26, fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: TextStyle(color: AppColors.onSurfaceVariant, fontSize: compact ? 12 : 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -13,14 +13,94 @@ String statusLabelTh(IncidentStatus s) => switch (s) {
       IncidentStatus.resolved => 'แก้ไขแล้ว',
     };
 
-/// รายการหมายเหตุ/feedback จากเจ้าหน้าที่ พร้อมชื่อผู้ลงนาม
+/// รายการหมายเหตุ/feedback จากเจ้าหน้าที่ พร้อมชื่อผู้ลงนาม และภาพหลังแก้ไข (After)
 /// [editable] = true (ฝั่ง admin) จะแสดงปุ่มแก้ไขเฉพาะรายการที่ตัวเองเขียน
-/// ถ้าอ่านไม่ได้ (เช่น ไม่ใช่เจ้าของเรื่อง) หรือไม่มีรายการ จะไม่แสดงอะไร
+/// ถ้าอ่านไม่ได้ (เช่น ไม่ใช่เจ้าของเรื่อง) และไม่มีภาพ จะไม่แสดงอะไร
 class IncidentUpdatesSection extends ConsumerWidget {
-  const IncidentUpdatesSection({super.key, required this.incidentId, this.editable = false});
+  const IncidentUpdatesSection({
+    super.key,
+    required this.incidentId,
+    this.resolutionImageUrls = const [],
+    this.editable = false,
+  });
 
   final String incidentId;
+  final List<String> resolutionImageUrls;
   final bool editable;
+
+  void _viewImage(BuildContext context, String url) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            InteractiveViewer(child: Image.network(url, fit: BoxFit.contain)),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton.filledTonal(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _resolutionCard(BuildContext context) {
+    return Card(
+      color: AppColors.statusResolvedContainer.withValues(alpha: 0.4),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.task_alt_rounded, size: 16, color: AppColors.statusResolved),
+                SizedBox(width: 6),
+                Text('ภาพยืนยันผลงานหลังแก้ไข', style: TextStyle(fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final url in resolutionImageUrls)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: InkWell(
+                        onTap: () => _viewImage(context, url),
+                        borderRadius: BorderRadius.circular(8),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            url,
+                            width: 140,
+                            height: 105,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox(
+                              width: 140,
+                              height: 105,
+                              child: Icon(Icons.broken_image_rounded),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Future<void> _edit(BuildContext context, WidgetRef ref, IncidentUpdate u) async {
     final controller = TextEditingController(text: u.note);
@@ -60,7 +140,7 @@ class IncidentUpdatesSection extends ConsumerWidget {
     final updates = ref.watch(incidentUpdatesProvider(incidentId)).valueOrNull ?? const [];
     // ข้อความที่ว่างเปล่า (เปลี่ยนสถานะเฉยๆ) ไม่ต้องแสดง
     final items = updates.where((u) => u.note.isNotEmpty).toList();
-    if (items.isEmpty) return const SizedBox.shrink();
+    if (items.isEmpty && resolutionImageUrls.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
     final fmt = DateFormat('d MMM yyyy, HH:mm น.', 'th');
@@ -71,6 +151,7 @@ class IncidentUpdatesSection extends ConsumerWidget {
       children: [
         Text('ข้อความจากเจ้าหน้าที่', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
+        if (resolutionImageUrls.isNotEmpty) _resolutionCard(context),
         for (final u in items)
           Card(
             color: AppColors.surfaceContainerLow,
