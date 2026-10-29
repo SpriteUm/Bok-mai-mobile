@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "USABILITY_TESTING_REPORT.md",
+                "file": "TEST_AND_COVERAGE_REPORT.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "USABILITY_TESTING_REPORT"
+              "title": "TEST_AND_COVERAGE_REPORT"
             }
           }
         ]
@@ -99,7 +99,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "USABILITY_TESTING_REPORT.md",
+                "file": "TEST_AND_COVERAGE_REPORT.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -118,7 +118,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "USABILITY_TESTING_REPORT.md",
+                "file": "TEST_AND_COVERAGE_REPORT.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -146,7 +146,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "USABILITY_TESTING_REPORT.md",
+                "file": "TEST_AND_COVERAGE_REPORT.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -190,19 +190,19 @@
   },
   "active": "d987d830550eb2a2",
   "lastOpenFiles": [
-    "lib/features/feed/widgets/incident_urgency_badge.dart",
-    "lib/features/feed/widgets/emergency_note.dart",
-    "lib/features/admin/widgets/incident_location_map.dart",
-    "lib/features/admin/widgets",
-    "lib/core/constants/map_config.dart",
-    "lib/core/constants/ai_config.dart",
-    "build/url_launcher_android/intermediates/merged_consumer_proguard_file/debug/mergeDebugConsumerProguardFiles",
-    "build/url_launcher_android/intermediates/merged_consumer_proguard_file/debug",
-    "build/url_launcher_android/intermediates/merged_consumer_proguard_file",
-    "build/url_launcher_android/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt",
-    "build/url_launcher_android/intermediates/manifest_merge_blame_file/debug/processDebugManifest",
-    "Pasted image 20261029230332.png",
     "USABILITY_TESTING_REPORT.md",
+    "TEST_AND_COVERAGE_REPORT.md",
+    "coverage/lcov.info",
+    "coverage",
+    "build/test_cache/build/705e643c",
+    "build/test_cache/build/8ba5843e",
+    "build/test_cache/build/fa715284",
+    "build/test_cache/build/6cf157d0",
+    "build/test_cache/build/c66f6ff3",
+    "build/test_cache/build/b14e1312",
+    "build/unit_test_assets/NativeAssetsManifest.json",
+    "lib/features/feed/widgets/incident_urgency_badge.dart",
+    "Pasted image 20261029230332.png",
     "build/app/intermediates/packaged_res/debug/packageDebugResources/mipmap-mdpi-v4/ic_launcher_foreground.png",
     "PRODUCT.md"
   ]
