@@ -9,10 +9,6 @@ import '../../firebase_options.dart';
 
 const functionsRegion = 'asia-southeast1';
 
-/// เริ่ม Firebase คืนค่า false ถ้า init ไม่สำเร็จ (แอปยังรันด้วยข้อมูลจำลองได้)
-///
-/// ต่อ emulator ด้วย `flutter run --dart-define=EMULATOR_HOST=10.0.2.2`
-/// (iOS Simulator / Web / Desktop ใช้ localhost)
 Future<bool> initFirebase() async {
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
