@@ -2,12 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'core/auth/session_timeout.dart';
 import 'core/firebase/firebase_bootstrap.dart';
 import 'core/theme/app_theme.dart';
 import 'features/admin/screens/admin_web_dashboard_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/navigation/screens/main_navigation_shell.dart';
+import 'features/splash/animated_splash.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +32,7 @@ class BokMaiApp extends StatelessWidget {
       title: 'Bok Mai (บอกไหม)',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const AuthGate(),
+      home: const SessionTimeout(child: AnimatedSplash(child: AuthGate())),
     );
   }
 }
@@ -66,9 +68,14 @@ class AuthGate extends ConsumerWidget {
 class _Splash extends StatelessWidget {
   const _Splash();
 
+  // โลโก้นิ่งกลางจอ ต่อจาก AnimatedSplash ได้เนียนระหว่างรอเช็กสิทธิ์
   @override
-  Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: CircularProgressIndicator()));
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Image.asset('assets/images/logo_icon.png', width: 128),
+        ),
+      );
 }
 
 class _AppHome extends StatelessWidget {
