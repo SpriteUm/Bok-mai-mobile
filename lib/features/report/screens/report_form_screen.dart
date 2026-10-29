@@ -7,13 +7,18 @@ import 'package:image_picker/image_picker.dart';
 import 'package:bok_mai_mobile/core/constants/cloudinary_config.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
 import 'package:bok_mai_mobile/data/services/image_upload_service.dart';
+import 'package:bok_mai_mobile/data/services/speech_service.dart';
+import 'package:bok_mai_mobile/data/services/voice_report_drafter.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:bok_mai_mobile/features/feed/providers/feed_provider.dart';
 
 class ReportFormScreen extends ConsumerStatefulWidget {
-  const ReportFormScreen({super.key});
+  const ReportFormScreen({super.key, this.editing});
+
+  /// ถ้าส่งมา = โหมดแก้ไขรายงานเดิม (แก้ได้เฉพาะข้อความ หมวดหมู่ และความเร่งด่วน)
+  final IncidentModel? editing;
 
   @override
   ConsumerState<ReportFormScreen> createState() => _ReportFormScreenState();
@@ -32,14 +37,33 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   final List<XFile> _selectedImages = [];
   final ImagePicker _picker = ImagePicker();
 
+  final SpeechService _speech = SpeechService();
   bool _isRecording = false;
+  bool _drafting = false;
+  String _transcript = '';
   bool _isAutoBlurEnabled = true;
+
+  bool get _isEdit => widget.editing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.editing;
+    if (e != null) {
+      _titleController.text = e.title;
+      _descController.text = e.description;
+      _locationController.text = e.locationAddress;
+      _selectedCategory = e.category;
+      _selectedUrgency = e.urgency;
+    }
+  }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
     _locationController.dispose();
+    _speech.cancel();
     super.dispose();
   }
 
@@ -64,37 +88,68 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     }
   }
 
-  void _simulateVoiceToReport() {
+  void _showMessage(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// กดครั้งแรกเริ่มฟัง กดอีกครั้ง (หรือพูดจบ) แล้วให้ AI ร่างฟอร์มจากสิ่งที่พูด
+  Future<void> _toggleVoiceReport() async {
+    if (_drafting) return;
+    if (_isRecording) {
+      await _speech.stop();
+      return;
+    }
+
+    _transcript = '';
+    final started = await _speech.start(
+      onResult: (text) => _transcript = text,
+      onDone: _onSpeechDone,
+      onError: (e) {
+        if (mounted) setState(() => _isRecording = false);
+        _showMessage('ฟังเสียงไม่สำเร็จ: $e');
+      },
+    );
+    if (!mounted) return;
+    if (!started) {
+      _showMessage('ใช้ไมโครโฟนไม่ได้ โปรดอนุญาตสิทธิ์ไมค์แล้วลองใหม่');
+      return;
+    }
+    setState(() => _isRecording = true);
+  }
+
+  Future<void> _onSpeechDone() async {
+    if (!mounted || !_isRecording) return;
     setState(() {
-      _isRecording = true;
+      _isRecording = false;
+      _drafting = true;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('กำลังฟังเสียงพูดของคุณ... (Voice-to-Report)'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    final transcript = _transcript.trim();
+    if (transcript.isEmpty) {
+      setState(() => _drafting = false);
+      _showMessage('ไม่ได้ยินเสียงพูด ลองกดไมค์แล้วพูดใหม่อีกครั้ง');
+      return;
+    }
 
-    Future.delayed(const Duration(seconds: 2), () {
+    try {
+      final draft = await ref.read(voiceReportDrafterProvider).draft(transcript);
       if (!mounted) return;
       setState(() {
-        _isRecording = false;
-        _titleController.text = 'ท่อประปาแตก น้ำเจิ่งนองผิวจราจร';
-        _descController.text =
-            'ท่อเมนน้ำประปาแตกรั่วไหลลงบนถนนทำให้ทางเดินลื่นมาก รถสัญจรลำบากหน้าทางเข้าซอย';
-        _selectedCategory = IncidentCategory.water;
-        _selectedUrgency = IncidentUrgency.high;
+        _titleController.text = draft.title;
+        _descController.text = draft.description;
+        _selectedCategory = draft.category;
+        _selectedUrgency = draft.urgency;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✨ Gemini AI สรุปหัวข้อและกรอกข้อมูลลงฟอร์มให้แล้ว!'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppColors.primary,
-        ),
-      );
-    });
+      _showMessage('ร่างแบบฟอร์มจากเสียงของคุณแล้ว โปรดตรวจสอบก่อนส่ง');
+    } catch (e) {
+      // ร่างไม่ได้ก็เก็บข้อความที่พูดไว้ในช่องรายละเอียด ไม่ให้เสียคำพูดผู้ใช้
+      if (!mounted) return;
+      setState(() => _descController.text = transcript);
+      _showMessage('ร่างแบบฟอร์มไม่สำเร็จ ใส่ข้อความที่พูดไว้ในรายละเอียดแล้ว');
+    } finally {
+      if (mounted) setState(() => _drafting = false);
+    }
   }
 
   bool _submitting = false;
@@ -121,7 +176,37 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     }
   }
 
+  Future<void> _saveEdit() async {
+    if (!_formKey.currentState!.validate() || _submitting) return;
+    if (!ref.read(firebaseReadyProvider) ||
+        ref.read(authStateProvider).valueOrNull == null) {
+      _showMessage('แก้ไขได้เมื่อเชื่อมต่อ Firebase และเข้าสู่ระบบแล้วเท่านั้น');
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      await ref.read(incidentRepositoryProvider).updateIssue(
+            widget.editing!.copyWith(
+              title: _titleController.text.trim(),
+              description: _descController.text.trim(),
+              category: _selectedCategory,
+              urgency: _selectedUrgency,
+              locationAddress: _locationController.text.trim(),
+            ),
+          );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _showMessage('แก้ไขไม่สำเร็จ (แก้ได้เฉพาะเรื่องที่รอดำเนินการและไม่มีคนกด +1 ร่วม): $e');
+      return;
+    }
+    if (!mounted) return;
+    Navigator.pop(context, true);
+    _showMessage('บันทึกการแก้ไขแล้ว');
+  }
+
   Future<void> _submitReport() async {
+    if (_isEdit) return _saveEdit();
     if (!_formKey.currentState!.validate() || _submitting) return;
     setState(() => _submitting = true);
 
@@ -205,13 +290,14 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('แจ้งปัญหาสาธารณะ'),
+        title: Text(_isEdit ? 'แก้ไขรายงาน' : 'แจ้งปัญหาสาธารณะ'),
       ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (!_isEdit) ...[
             // Voice-to-Report AI Banner
             Card(
               color: AppColors.primaryContainer.withValues(alpha: 0.5),
@@ -246,7 +332,11 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'กดอัดเสียงพูดปัญหา AI ช่วยสรุปข้อความลงฟอร์มทันที',
+                            _isRecording
+                                ? 'กำลังฟัง... พูดปัญหาที่พบ แล้วกดหยุดเมื่อพูดจบ'
+                                : _drafting
+                                    ? 'กำลังร่างแบบฟอร์ม...'
+                                    : 'กดอัดเสียงพูดปัญหา AI ช่วยร่างแบบฟอร์มให้ ตรวจแก้ได้ก่อนส่ง',
                             style: theme.textTheme.bodySmall,
                           ),
                         ],
@@ -260,7 +350,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                             : AppColors.primary,
                         minimumSize: const Size(48, 48),
                       ),
-                      onPressed: _simulateVoiceToReport,
+                      onPressed: _drafting ? null : _toggleVoiceReport,
                       icon: Icon(
                         _isRecording ? Icons.stop_rounded : Icons.mic_rounded,
                         color: Colors.white,
@@ -401,6 +491,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
               },
             ),
             const Divider(height: 24),
+            ],
 
             // Category Selection
             Text('หมวดหมู่ปัญหา *', style: theme.textTheme.titleMedium),
@@ -547,9 +638,9 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                   borderRadius: BorderRadius.circular(AppRadius.full),
                 ),
               ),
-              icon: const Icon(Icons.send_rounded),
-              label: const Text(
-                'ส่งรายงานปัญหา',
+              icon: Icon(_isEdit ? Icons.save_rounded : Icons.send_rounded),
+              label: Text(
+                _isEdit ? 'บันทึกการแก้ไข' : 'ส่งรายงานปัญหา',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ),

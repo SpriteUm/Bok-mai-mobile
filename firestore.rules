@@ -78,19 +78,44 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'images', 'updatedAt'])
         && request.resource.data.updatedAt == request.time;
 
-      allow delete: if false;
+      // เจ้าของแก้ไขเนื้อหารายงานได้ เมื่อยังรอดำเนินการและไม่มีคนกด +1 ร่วม
+      allow update: if isOwner(resource.data.reporterId)
+        && resource.data.status == 'pending'
+        && resource.data.reportCount == 1
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['categoryCode', 'title', 'description', 'urgency', 'addressText', 'updatedAt'])
+        && exists(/databases/$(database)/documents/categories/$(request.resource.data.categoryCode))
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 2000
+        && request.resource.data.urgency in ['low', 'medium', 'high']
+        && request.resource.data.updatedAt == request.time;
+
+      // เจ้าของลบเรื่องของตัวเองได้ เมื่อไม่มีคนกด +1 ร่วม และต้องลบสำเนาใน issues_feed ใน batch เดียวกัน
+      allow delete: if isOwner(resource.data.reporterId)
+        && resource.data.reportCount == 1
+        && !existsAfter(/databases/$(database)/documents/issues_feed/$(issueId));
 
       // Timeline: admin เขียนเมื่อเปลี่ยนสถานะ, เจ้าของเขียนตอน Re-open
       match /updates/{updateId} {
         allow read: if isAdmin() || isOwner(get(/databases/$(database)/documents/issues/$(issueId)).data.reporterId);
         allow create: if signedIn()
-          && request.resource.data.keys().hasOnly(['actorId', 'status', 'note', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['actorId', 'actorName', 'status', 'note', 'createdAt'])
           && request.resource.data.actorId == request.auth.uid
+          && (!('actorName' in request.resource.data)
+              || (request.resource.data.actorName is string && request.resource.data.actorName.size() <= 100))
           && request.resource.data.status in ['pending', 'in_progress', 'resolved']
           && request.resource.data.note is string && request.resource.data.note.size() <= 1000
           && request.resource.data.createdAt == request.time
           && (isAdmin() || isOwner(get(/databases/$(database)/documents/issues/$(issueId)).data.reporterId));
-        allow update, delete: if false;
+        // admin แก้ข้อความที่ตัวเองเขียนเองเท่านั้น (ชื่อผู้ลงนามและเวลาเดิมคงอยู่)
+        allow update: if isAdmin()
+          && resource.data.actorId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['note', 'editedAt'])
+          && request.resource.data.note is string && request.resource.data.note.size() <= 1000
+          && request.resource.data.editedAt == request.time;
+        allow delete: if false;
       }
     }
 
@@ -126,6 +151,19 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'images', 'updatedAt'])
         && request.resource.data.updatedAt == request.time;
 
+      // เจ้าของแก้ไขเนื้อหา (ต้องแก้คู่กับ issues ใน batch เดียวกัน)
+      allow update: if get(/databases/$(database)/documents/issues/$(issueId)).data.reporterId == request.auth.uid
+        && resource.data.status == 'pending'
+        && resource.data.reportCount == 1
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['categoryCode', 'title', 'description', 'urgency', 'addressText', 'updatedAt'])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 2000
+        && request.resource.data.urgency in ['low', 'medium', 'high']
+        && request.resource.data.updatedAt == request.time;
+
       // +1 : ต้องสร้าง follower ใน batch เดียวกัน และห้ามเจ้าของเรื่องกดเอง
       allow update: if signedIn()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount', 'updatedAt'])
@@ -144,7 +182,10 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/issues_feed/$(issueId)/followers/$(request.auth.uid))
         && !existsAfter(/databases/$(database)/documents/issues_feed/$(issueId)/followers/$(request.auth.uid));
 
-      allow delete: if false;
+      // เจ้าของลบสำเนาพร้อมเรื่องหลัก (batch เดียวกัน) เมื่อไม่มีคนกด +1 ร่วม
+      allow delete: if get(/databases/$(database)/documents/issues/$(issueId)).data.reporterId == request.auth.uid
+        && resource.data.reportCount == 1
+        && !existsAfter(/databases/$(database)/documents/issues/$(issueId));
 
       match /followers/{uid} {
         allow read: if isOwner(uid);
