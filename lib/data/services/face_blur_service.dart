@@ -7,6 +7,8 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
+import 'face_detect_stub.dart' if (dart.library.js_interop) 'face_detect_web.dart';
+
 class FaceBlurResult {
   const FaceBlurResult(this.bytes, this.faceCount);
 
@@ -17,16 +19,26 @@ class FaceBlurResult {
 
 /// เบลอใบหน้าคนในรูปก่อนอัปโหลด (PDPA)
 ///
-/// ตรวจจับใบหน้าด้วย ML Kit บนเครื่อง (ไม่ส่งรูปออกไปไหน) ใช้ได้เฉพาะ Android/iOS
+/// ตรวจจับใบหน้าบนเครื่องเสมอ (ไม่ส่งรูปออกไปไหน):
+/// Android/iOS ใช้ ML Kit, เว็บใช้ MediaPipe Face Detector (web/index.html)
 class FaceBlurService {
+  /// เปิดเบลอบนเว็บ (ถ้าปิด สวิตช์บนเว็บจะแสดงว่าใช้ได้เฉพาะแอปมือถือ)
+  static const webBlurEnabled = true;
+
   static bool get isSupported =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
+      (kIsWeb && webBlurEnabled) ||
+      (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS));
 
   Future<FaceBlurResult> blurFaces(XFile file) async {
     if (!isSupported) {
       throw UnsupportedError('เบลอใบหน้าอัตโนมัติใช้ได้เฉพาะแอปมือถือ');
+    }
+    if (kIsWeb) {
+      final bytes = await file.readAsBytes();
+      final boxes = await detectFacesWeb(bytes);
+      return FaceBlurResult(blurRegions(bytes, boxes), boxes.length);
     }
     final detector = FaceDetector(
       options: FaceDetectorOptions(

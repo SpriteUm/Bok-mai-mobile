@@ -102,6 +102,8 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
                     FloatingActionButton(
                       elevation: 2,
                       tooltip: 'แจ้งปัญหา',
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.onPrimary,
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -161,6 +163,8 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           const SizedBox(height: 12),
           FloatingActionButton.extended(
             heroTag: 'report',
+            backgroundColor: AppColors.primary,
+            foregroundColor: AppColors.onPrimary,
             onPressed: () {
               Navigator.push(
                 context,

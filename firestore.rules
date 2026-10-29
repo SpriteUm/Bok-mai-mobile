@@ -37,6 +37,20 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
       allow update: if isOwner(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']);
+
+      // ประวัติแชตผู้ช่วย AI: เจ้าของอ่าน/เพิ่ม/ลบได้ แก้ไขไม่ได้
+      match /assistant_messages/{msgId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['role', 'text', 'reportStory', 'order', 'createdAt'])
+          && request.resource.data.role in ['user', 'model']
+          && request.resource.data.text is string && request.resource.data.text.size() <= 8000
+          && (!('reportStory' in request.resource.data)
+              || (request.resource.data.reportStory is string && request.resource.data.reportStory.size() <= 8000))
+          && request.resource.data.order is int
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+      }
     }
 
     match /categories/{id} {

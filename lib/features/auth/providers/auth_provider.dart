@@ -49,6 +49,16 @@ Future<bool> checkIsAdmin(User user) async {
     // อ่านไม่ได้ถือว่าไม่ใช่ admin
   }
 
-  final token = await user.getIdTokenResult(true);
-  return token.claims?['admin'] == true;
+  try {
+    final token = await user.getIdTokenResult(true);
+    return token.claims?['admin'] == true;
+  } catch (_) {
+    // ออฟไลน์: ขอ token ใหม่ไม่ได้ ใช้ token เดิมในเครื่องแทน (หมดอายุแล้วก็ถือว่าไม่ใช่ admin)
+    try {
+      final token = await user.getIdTokenResult();
+      return token.claims?['admin'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

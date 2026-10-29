@@ -15,6 +15,13 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final allIncidents = ref.watch(incidentFeedProvider);
     final selectedCategory = ref.watch(selectedCategoryFilterProvider);
+    // เรื่องที่ตัวเองแจ้ง: กด +1 เองไม่ได้ (นับเป็น 1 คนอยู่แล้ว)
+    final myIds = {
+      for (final i
+          in ref.watch(myIncidentsProvider).valueOrNull ??
+              const <IncidentModel>[])
+        i.id,
+    };
 
     final filteredIncidents = selectedCategory == null
         ? allIncidents
@@ -44,9 +51,9 @@ class HomeScreen extends ConsumerWidget {
               children: [
                 Text(
                   'บอกไหม (Bok Mai)',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 Text(
                   'ฟีดปัญหาสาธารณะเพื่อชุมชน',
@@ -85,7 +92,8 @@ class HomeScreen extends ConsumerWidget {
                     label: const Text('ทั้งหมด'),
                     selected: selectedCategory == null,
                     onSelected: (_) {
-                      ref.read(selectedCategoryFilterProvider.notifier).state = null;
+                      ref.read(selectedCategoryFilterProvider.notifier).state =
+                          null;
                     },
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.full),
@@ -123,7 +131,9 @@ class HomeScreen extends ConsumerWidget {
                         onSelected: (selected) {
                           ref
                               .read(selectedCategoryFilterProvider.notifier)
-                              .state = selected ? cat : null;
+                              .state = selected
+                              ? cat
+                              : null;
                         },
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(AppRadius.full),
@@ -169,38 +179,11 @@ class HomeScreen extends ConsumerWidget {
                   crossAxisSpacing: 8,
                   mainAxisSpacing: 8,
                 ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final incident = filteredIncidents[index];
-                    return IncidentCard(
-                      incident: incident,
-                      onUpvote: () {
-                        ref
-                            .read(incidentFeedProvider.notifier)
-                            .toggleUpvote(incident.id);
-                      },
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => IncidentDetailScreen(incident: incident),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                  childCount: filteredIncidents.length,
-                ),
-              ),
-            )
-          else
-            // Phone: Single Column List
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
+                delegate: SliverChildBuilderDelegate((context, index) {
                   final incident = filteredIncidents[index];
                   return IncidentCard(
                     incident: incident,
+                    isMine: myIds.contains(incident.id),
                     onUpvote: () {
                       ref
                           .read(incidentFeedProvider.notifier)
@@ -210,18 +193,41 @@ class HomeScreen extends ConsumerWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => IncidentDetailScreen(incident: incident),
+                          builder: (_) =>
+                              IncidentDetailScreen(incident: incident),
                         ),
                       );
                     },
                   );
-                },
-                childCount: filteredIncidents.length,
+                }, childCount: filteredIncidents.length),
               ),
+            )
+          else
+            // Phone: Single Column List
+            SliverList(
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final incident = filteredIncidents[index];
+                return IncidentCard(
+                  incident: incident,
+                  isMine: myIds.contains(incident.id),
+                  onUpvote: () {
+                    ref
+                        .read(incidentFeedProvider.notifier)
+                        .toggleUpvote(incident.id);
+                  },
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            IncidentDetailScreen(incident: incident),
+                      ),
+                    );
+                  },
+                );
+              }, childCount: filteredIncidents.length),
             ),
-          const SliverToBoxAdapter(
-            child: SizedBox(height: 80),
-          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 80)),
         ],
       ),
     );

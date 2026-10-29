@@ -55,7 +55,8 @@ class _VoiceReportScreenState extends State<VoiceReportScreen> {
     if (!mounted) return;
     setState(() {
       _listening = started;
-      if (!started) _error = 'ใช้ไมโครโฟนไม่ได้ โปรดอนุญาตสิทธิ์ไมค์ หรือพิมพ์เล่าปัญหาแทน';
+      if (!started)
+        _error = 'ใช้ไมโครโฟนไม่ได้ โปรดอนุญาตสิทธิ์ไมค์ หรือพิมพ์เล่าปัญหาแทน';
     });
   }
 
@@ -87,7 +88,9 @@ class _VoiceReportScreenState extends State<VoiceReportScreen> {
     } else {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => ReportFormScreen(initialStory: story)),
+        MaterialPageRoute(
+          builder: (_) => ReportFormScreen(initialStory: story),
+        ),
       );
     }
   }
@@ -104,16 +107,22 @@ class _VoiceReportScreenState extends State<VoiceReportScreen> {
             children: [
               const Spacer(),
               Text(
-                _listening ? 'กำลังฟัง... เล่าปัญหาที่พบได้เลย' : 'กดไมค์แล้วพูดเล่าปัญหาที่พบ',
+                _listening
+                    ? 'กำลังฟัง... เล่าปัญหาที่พบได้เลย'
+                    : 'กดไมค์แล้วพูดเล่าปัญหาที่พบ',
                 textAlign: TextAlign.center,
-                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 'เช่น "ต้นไม้ล้มขวางถนนหน้าซอยฉลองกรุง 41 มีสายไฟพาดอยู่"\n'
                 'พูดจบแล้ว AI จะร่างแบบฟอร์มให้ ตรวจแก้ได้ก่อนส่ง',
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.onSurfaceVariant),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 40),
               _MicButton(listening: _listening, onPressed: _toggle),
@@ -129,7 +138,9 @@ class _VoiceReportScreenState extends State<VoiceReportScreen> {
                   border: Border.all(color: AppColors.outlineVariant),
                 ),
                 child: Text(
-                  _transcript.isEmpty ? (_error ?? 'คำที่พูดจะขึ้นตรงนี้') : _transcript,
+                  _transcript.isEmpty
+                      ? (_error ?? 'คำที่พูดจะขึ้นตรงนี้')
+                      : _transcript,
                   style: theme.textTheme.bodyLarge?.copyWith(
                     color: _transcript.isEmpty
                         ? (_error != null ? AppColors.error : AppColors.outline)

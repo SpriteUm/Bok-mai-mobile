@@ -19,6 +19,33 @@ class PlaceSearchService {
 
   final http.Client _client;
 
+  /// แปลงพิกัดเป็นที่อยู่ภาษาไทย เช่น "บ้านพฤกษา 70 แขวงลำปลาทิว เขตลาดกระบัง กรุงเทพมหานคร"
+  /// คืน null ถ้าหาไม่เจอหรือเรียกไม่สำเร็จ
+  Future<String?> reverse(LatLng point) async {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
+      'lat': '${point.latitude}',
+      'lon': '${point.longitude}',
+      'format': 'jsonv2',
+      'zoom': '18',
+      'accept-language': 'th',
+    });
+    try {
+      final headers = kIsWeb ? null : {'User-Agent': MapConfig.userAgentPackageName};
+      final res = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return null;
+      final name = (jsonDecode(utf8.decode(res.bodyBytes)) as Map)['display_name'] as String?;
+      if (name == null) return null;
+      // ตัดรหัสไปรษณีย์และชื่อประเทศท้ายที่อยู่ออก
+      final parts = name
+          .split(',')
+          .map((p) => p.trim())
+          .where((p) => p.isNotEmpty && p != 'ประเทศไทย' && int.tryParse(p) == null);
+      return parts.join(' ');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// [near] ใช้จัดลำดับให้ผลลัพธ์ใกล้จุดนี้ขึ้นก่อน (ไม่ตัดผลที่อยู่ไกลทิ้ง)
   Future<List<PlaceResult>> search(String query, {LatLng? near}) async {
     final q = query.trim();
