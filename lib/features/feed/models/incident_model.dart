@@ -60,6 +60,9 @@ class IncidentModel {
   final String title;
   final String description;
   final IncidentCategory category;
+
+  /// ข้อความหมวดที่ผู้แจ้งพิมพ์เอง ใช้เมื่อเลือกหมวด "อื่นๆ"
+  final String categoryNote;
   final IncidentStatus status;
   final String locationAddress;
   final double latitude;
@@ -69,7 +72,11 @@ class IncidentModel {
 
   /// รูปหลังแก้ไข (After) ที่เจ้าหน้าที่ส่งกลับมา แสดงแยกเป็น feedback
   final List<String> resolutionImageUrls;
+  /// ความเร่งด่วนที่ผู้แจ้ง (หรือ AI ที่ช่วยร่าง) ประเมิน ใช้เป็นข้อมูลประกอบเท่านั้น
   final IncidentUrgency urgency;
+
+  /// ลำดับความสำคัญที่เจ้าหน้าที่ (admin) กำหนด เป็นค่าที่ใช้จัดคิวงานจริง (null = ยังไม่ได้กำหนด)
+  final IncidentUrgency? priority;
   final int upvoteCount;
   final bool hasUpvoted;
   final DateTime createdAt;
@@ -79,6 +86,7 @@ class IncidentModel {
     required this.title,
     required this.description,
     required this.category,
+    this.categoryNote = '',
     required this.status,
     required this.locationAddress,
     required this.latitude,
@@ -86,6 +94,7 @@ class IncidentModel {
     required this.imageUrls,
     this.resolutionImageUrls = const [],
     this.urgency = IncidentUrgency.medium,
+    this.priority,
     required this.upvoteCount,
     this.hasUpvoted = false,
     required this.createdAt,
@@ -96,6 +105,7 @@ class IncidentModel {
     String? title,
     String? description,
     IncidentCategory? category,
+    String? categoryNote,
     IncidentStatus? status,
     String? locationAddress,
     double? latitude,
@@ -103,6 +113,7 @@ class IncidentModel {
     List<String>? imageUrls,
     List<String>? resolutionImageUrls,
     IncidentUrgency? urgency,
+    IncidentUrgency? priority,
     int? upvoteCount,
     bool? hasUpvoted,
     DateTime? createdAt,
@@ -112,6 +123,7 @@ class IncidentModel {
       title: title ?? this.title,
       description: description ?? this.description,
       category: category ?? this.category,
+      categoryNote: categoryNote ?? this.categoryNote,
       status: status ?? this.status,
       locationAddress: locationAddress ?? this.locationAddress,
       latitude: latitude ?? this.latitude,
@@ -119,6 +131,7 @@ class IncidentModel {
       imageUrls: imageUrls ?? this.imageUrls,
       resolutionImageUrls: resolutionImageUrls ?? this.resolutionImageUrls,
       urgency: urgency ?? this.urgency,
+      priority: priority ?? this.priority,
       upvoteCount: upvoteCount ?? this.upvoteCount,
       hasUpvoted: hasUpvoted ?? this.hasUpvoted,
       createdAt: createdAt ?? this.createdAt,
@@ -139,8 +152,12 @@ class IncidentModel {
       title: data['title'] as String? ?? '',
       description: data['description'] as String? ?? '',
       category: IncidentCategory.fromCode(data['categoryCode'] as String?),
+      categoryNote: data['categoryNote'] as String? ?? '',
       status: IncidentStatus.fromCode(data['status'] as String?),
       urgency: IncidentUrgency.fromCode(data['urgency'] as String?),
+      priority: data['priority'] is String
+          ? IncidentUrgency.fromCode(data['priority'] as String)
+          : null,
       locationAddress: data['addressText'] as String? ?? '',
       latitude: location?.latitude ?? 0,
       longitude: location?.longitude ?? 0,
@@ -179,6 +196,7 @@ class IncidentModel {
   Map<String, dynamic> toFeedMap({required String geohash}) {
     return {
       'categoryCode': category.code,
+      'categoryNote': effectiveCategoryNote,
       'title': title,
       'description': description,
       'urgency': urgency.code,
@@ -195,7 +213,19 @@ class IncidentModel {
     };
   }
 
+  /// ความสำคัญที่ใช้จัดลำดับงาน: ของเจ้าหน้าที่ถ้ากำหนดแล้ว ไม่งั้นใช้ที่ผู้แจ้งประเมินไปก่อน
+  IncidentUrgency get effectivePriority => priority ?? urgency;
+
+  /// เก็บข้อความหมวดเฉพาะเมื่อเป็นหมวด "อื่นๆ" (เปลี่ยนไปหมวดอื่นแล้วต้องล้างทิ้ง)
+  String get effectiveCategoryNote =>
+      category == IncidentCategory.other ? categoryNote.trim() : '';
+
   String get categoryLabel {
+    if (effectiveCategoryNote.isNotEmpty) return 'อื่นๆ: $effectiveCategoryNote';
+    return labelFor(category);
+  }
+
+  static String labelFor(IncidentCategory category) {
     switch (category) {
       case IncidentCategory.electricity:
         return 'ไฟฟ้า';

@@ -13,6 +13,8 @@ import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
 import 'package:bok_mai_mobile/features/feed/providers/feed_provider.dart';
 import 'package:bok_mai_mobile/features/feed/widgets/incident_status_badge.dart';
 import 'package:bok_mai_mobile/features/feed/widgets/incident_updates_section.dart';
+import 'package:bok_mai_mobile/features/feed/widgets/incident_urgency_badge.dart';
+import 'package:bok_mai_mobile/features/admin/widgets/incident_location_map.dart';
 
 class AdminWebDashboardScreen extends ConsumerStatefulWidget {
   const AdminWebDashboardScreen({super.key});
@@ -354,7 +356,8 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
             item.locationAddress.toLowerCase().contains(q);
       }
       return true;
-    }).toList();
+    }).toList()
+      ..sort(_byPriority);
 
     // Stats
     final totalCount = allIncidents.length;
@@ -527,6 +530,7 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                       DataColumn(label: Text('หัวข้อปัญหา')),
                       DataColumn(label: Text('หมวดหมู่')),
                       DataColumn(label: Text('สถานะ')),
+                      DataColumn(label: Text('ความสำคัญ')),
                       DataColumn(label: Text('สถานที่')),
                       DataColumn(label: Text('ผู้ร่วมแจ้ง')),
                       DataColumn(label: Text('จัดการ')),
@@ -571,6 +575,22 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                           ),
                           DataCell(Text(incident.categoryLabel)),
                           DataCell(IncidentStatusBadge(status: incident.status)),
+                          DataCell(
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IncidentUrgencyBadge(urgency: incident.effectivePriority),
+                                if (incident.priority == null)
+                                  const Padding(
+                                    padding: EdgeInsets.only(left: 4),
+                                    child: Tooltip(
+                                      message: 'ยังไม่ได้กำหนด (ใช้ผลคัดกรองของ AI)',
+                                      child: Icon(Icons.auto_awesome_rounded, size: 14, color: AppColors.outline),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                           DataCell(
                             SizedBox(
                               width: 150,
@@ -632,6 +652,81 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
     );
   }
 
+  static int _byPriority(IncidentModel a, IncidentModel b) {
+    final p = b.effectivePriority.index.compareTo(a.effectivePriority.index);
+    if (p != 0) return p;
+    final votes = b.upvoteCount.compareTo(a.upvoteCount);
+    if (votes != 0) return votes;
+    return a.createdAt.compareTo(b.createdAt);
+  }
+
+  static String _waitingFor(DateTime createdAt) {
+    final d = DateTime.now().difference(createdAt);
+    if (d.inDays >= 1) return '${d.inDays} วัน';
+    if (d.inHours >= 1) return '${d.inHours} ชั่วโมง';
+    return '${d.inMinutes} นาที';
+  }
+
+  Future<void> _setPriority(IncidentModel incident, IncidentUrgency priority) async {
+    try {
+      await ref.read(incidentRepositoryProvider).adminSetPriority(
+            issueId: incident.id,
+            priority: priority,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('กำหนดลำดับความสำคัญเป็น "${UrgencyStyle.of(priority).label}" แล้ว')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('บันทึกลำดับความสำคัญไม่สำเร็จ: $e')),
+      );
+    }
+  }
+
+  /// ส่วนให้เจ้าหน้าที่ตัดสินลำดับความสำคัญ พร้อมข้อมูลประกอบ
+  Widget _prioritySection(BuildContext context, IncidentModel incident) {
+    final theme = Theme.of(context);
+    final confirmed = incident.priority != null;
+    final aiLabel = UrgencyStyle.of(incident.urgency).label;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('ลำดับความสำคัญ (เจ้าหน้าที่ตัดสิน)', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            confirmed
+                ? 'กำหนดแล้ว ใช้ค่านี้จัดลำดับงาน'
+                : 'ยังไม่ได้กำหนด ตอนนี้ใช้ผลคัดกรองของ AI ไปก่อน',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: confirmed ? AppColors.statusResolved : AppColors.statusPending,
+            ),
+          ),
+          const SizedBox(height: 10),
+          UrgencySelector(
+            value: incident.effectivePriority,
+            onChanged: (p) => _setPriority(incident, p),
+          ),
+          const SizedBox(height: 12),
+          Text('ข้อมูลประกอบการตัดสิน', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 4),
+          Text('• AI คัดกรองเบื้องต้น: $aiLabel', style: theme.textTheme.bodySmall),
+          Text('• ผู้ร่วมแจ้ง (+1): ${incident.upvoteCount} คน', style: theme.textTheme.bodySmall),
+          Text('• รอมาแล้ว: ${_waitingFor(incident.createdAt)}', style: theme.textTheme.bodySmall),
+          Text('• หน้างานจริง: ตรวจจากรูปและแผนที่ด้านล่าง', style: theme.textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+
   /// เนื้อหารายละเอียดงาน ใช้ทั้งแผงด้านขวา (จอกว้าง) และ bottom sheet (มือถือ)
   List<Widget> _detailChildren(BuildContext context, IncidentModel incident) {
     final theme = Theme.of(context);
@@ -657,7 +752,16 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
         style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
       ),
       const SizedBox(height: 8),
-      Align(alignment: Alignment.centerLeft, child: IncidentStatusBadge(status: incident.status)),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          IncidentStatusBadge(status: incident.status),
+          IncidentUrgencyBadge(urgency: incident.effectivePriority),
+        ],
+      ),
+      const SizedBox(height: 16),
+      _prioritySection(context, incident),
       const SizedBox(height: 16),
       const Text('รายละเอียดที่ประชาชนแจ้ง:', style: TextStyle(fontWeight: FontWeight.bold)),
       const SizedBox(height: 4),
@@ -668,6 +772,8 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
       Text(incident.locationAddress),
       const SizedBox(height: 8),
       Text('GPS: ${incident.latitude}, ${incident.longitude}', style: theme.textTheme.bodySmall),
+      const SizedBox(height: 8),
+      IncidentLocationMap(incident: incident),
       const SizedBox(height: 16),
       IncidentUpdatesSection(
         incidentId: incident.id,
@@ -840,6 +946,8 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                           Row(
                             children: [
                               IncidentStatusBadge(status: incident.status),
+                              const SizedBox(width: 6),
+                              IncidentUrgencyBadge(urgency: incident.effectivePriority),
                               const Spacer(),
                               Text('+${incident.upvoteCount} คน', style: theme.textTheme.bodySmall),
                             ],

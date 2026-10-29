@@ -9,19 +9,26 @@ class ReportDraft {
     required this.description,
     required this.category,
     required this.urgency,
+    this.categoryNote = '',
+    this.aiDrafted = false,
   });
 
   final String title;
   final String description;
   final IncidentCategory category;
   final IncidentUrgency urgency;
+
+  /// ชื่อหมวดที่ AI เสนอเมื่อเป็นหมวด "อื่นๆ"
+  final String categoryNote;
+
+  /// true = ร่างโดย Gemini, false = เดาจากคำสำคัญ (ใช้บอกผู้ใช้ตามจริง)
+  final bool aiDrafted;
 }
 
 /// ตัวร่างฟอร์มจากข้อความที่ถอดจากเสียง
 ///
-/// ตอนนี้ใช้ [KeywordReportDrafter] เมื่อมี Gemini ให้เขียน class ใหม่ที่
-/// implements อินเทอร์เฟซนี้ (เรียกผ่าน Cloud Function) แล้วสลับที่
-/// [voiceReportDrafterProvider] จุดเดียว หน้าจอไม่ต้องแก้
+/// ใช้ [GeminiReportDrafter] เป็นหลัก ถ้าเรียกไม่ได้จะถอยไปใช้ [KeywordReportDrafter]
+/// สลับตัวร่างได้ที่ [voiceReportDrafterProvider] จุดเดียว หน้าจอไม่ต้องแก้
 abstract class VoiceReportDrafter {
   Future<ReportDraft> draft(String transcript);
 }
