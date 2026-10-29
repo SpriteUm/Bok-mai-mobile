@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -9,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:bok_mai_mobile/core/constants/map_config.dart';
 import 'package:bok_mai_mobile/core/constants/cloudinary_config.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
+import 'package:bok_mai_mobile/data/services/face_blur_service.dart';
 import 'package:bok_mai_mobile/data/services/image_upload_service.dart';
 import 'package:bok_mai_mobile/data/services/voice_report_drafter.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
@@ -50,7 +50,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   /// จุดเกิดเหตุที่จะส่ง: เริ่มจาก GPS แล้วผู้ใช้ปรับเองบนแผนที่ได้
   LatLng? _pickedPoint;
   bool _locating = false;
-  final List<XFile> _selectedImages = [];
+  final List<_Photo> _photos = [];
   final ImagePicker _picker = ImagePicker();
 
   bool _drafting = false;
@@ -62,7 +62,8 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   String? _lastStory;
   String? _draftReply;
   bool _draftReplyFromAi = false;
-  bool _isAutoBlurEnabled = true;
+  /// เบลอใบหน้าอัตโนมัติ (PDPA) เปิดไว้เสมอบนมือถือ บนเว็บใช้ไม่ได้ (ML Kit ไม่รองรับ)
+  bool _isAutoBlurEnabled = FaceBlurService.isSupported;
 
   bool get _isEdit => widget.editing != null;
 
@@ -106,17 +107,36 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
         maxWidth: 1600,
         imageQuality: 85,
       );
-      if (picked != null) {
-        setState(() {
-          _selectedImages.add(picked);
-        });
-      }
+      if (picked == null) return;
+      final photo = _Photo(picked, await picked.readAsBytes());
+      if (!mounted) return;
+      setState(() => _photos.add(photo));
+      if (_isAutoBlurEnabled) await _blur(photo);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('เลือกรูปภาพไม่สำเร็จ: $e')),
         );
       }
+    }
+  }
+
+  /// เบลอใบหน้าในรูป (บนเครื่อง) แล้วแสดงรูปที่เบลอแล้วเป็นตัวอย่าง
+  Future<void> _blur(_Photo photo) async {
+    if (photo.blurred != null || photo.blurring) return;
+    setState(() {
+      photo.blurring = true;
+      photo.error = null;
+    });
+    try {
+      final result = await FaceBlurService().blurFaces(photo.file);
+      photo.blurred = result.bytes;
+      photo.faceCount = result.faceCount;
+    } catch (e) {
+      debugPrint('เบลอใบหน้าไม่สำเร็จ: $e');
+      photo.error = 'เบลอไม่สำเร็จ';
+    } finally {
+      if (mounted) setState(() => photo.blurring = false);
     }
   }
 
@@ -288,6 +308,17 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   Future<void> _submitReport() async {
     if (_isEdit) return _saveEdit();
     if (!_formKey.currentState!.validate() || _submitting) return;
+    // PDPA: เปิดเบลอไว้ ต้องเบลอสำเร็จทุกรูปก่อน ห้ามส่งรูปที่ยังไม่เบลอขึ้นไปเงียบๆ
+    if (_isAutoBlurEnabled && _photos.isNotEmpty) {
+      if (_photos.any((p) => p.blurring)) {
+        _showMessage('กำลังเบลอใบหน้าในรูป รอสักครู่แล้วกดส่งอีกครั้ง');
+        return;
+      }
+      if (_photos.any((p) => p.blurred == null)) {
+        _showMessage('มีรูปที่เบลอใบหน้าไม่สำเร็จ ลบรูปนั้นหรือถ่ายใหม่ก่อนส่ง');
+        return;
+      }
+    }
     setState(() => _submitting = true);
 
     final urgency = await _screenUrgency();
@@ -296,10 +327,15 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     // อัปโหลดรูปไป Cloudinary แล้วเก็บเป็นลิงก์ (สูงสุด 5 รูปตาม firestore.rules)
     var imageUrls = <String>[];
     String? imageWarning;
-    if (_selectedImages.isNotEmpty && ref.read(firebaseReadyProvider)) {
+    if (_photos.isNotEmpty && ref.read(firebaseReadyProvider)) {
       if (CloudinaryConfig.isConfigured) {
         try {
-          imageUrls = await ImageUploadService().uploadAll(_selectedImages.take(5));
+          imageUrls = await ImageUploadService().uploadAll([
+            for (final (i, p) in _photos.take(5).indexed)
+              _isAutoBlurEnabled && p.blurred != null
+                  ? XFile.fromData(p.blurred!, name: 'report_$i.jpg', mimeType: 'image/jpeg')
+                  : p.file,
+          ]);
         } catch (e) {
           if (!mounted) return;
           setState(() => _submitting = false);
@@ -531,6 +567,29 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     );
   }
 
+  /// แถบสถานะใต้รูป: กำลังเบลอ / เบลอกี่หน้า / ไม่พบใบหน้า / เบลอไม่สำเร็จ
+  Widget _blurStatus(_Photo photo) {
+    final (text, color) = photo.blurring
+        ? ('กำลังเบลอ...', Colors.black54)
+        : photo.error != null
+            ? (photo.error!, AppColors.error)
+            : photo.faceCount > 0
+                ? ('เบลอ ${photo.faceCount} หน้า', AppColors.statusResolved)
+                : ('ไม่พบใบหน้า', Colors.black54);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.85),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppRadius.md)),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
   /// แผนที่ย่อแสดงจุดที่จะส่ง กดเพื่อเลือกจุดเองบนแผนที่เต็มจอ
   Widget _locationPreview(ThemeData theme) {
     final point = _pickedPoint;
@@ -695,34 +754,36 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                   const SizedBox(width: 10),
 
                   // Selected Images Thumbnails
-                  ..._selectedImages.map(
-                    (xFile) => Padding(
+                  ..._photos.map(
+                    (photo) => Padding(
                       padding: const EdgeInsets.only(right: 10),
                       child: Stack(
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(AppRadius.md),
-                            child: kIsWeb
-                                ? Image.network(
-                                    xFile.path,
-                                    width: 90,
-                                    height: 90,
-                                    fit: BoxFit.cover,
-                                  )
-                                : Image.file(
-                                    File(xFile.path),
-                                    width: 90,
-                                    height: 90,
-                                    fit: BoxFit.cover,
-                                  ),
+                            child: Image.memory(
+                              _isAutoBlurEnabled && photo.blurred != null
+                                  ? photo.blurred!
+                                  : photo.original,
+                              width: 90,
+                              height: 90,
+                              fit: BoxFit.cover,
+                            ),
                           ),
+                          if (_isAutoBlurEnabled)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: _blurStatus(photo),
+                            ),
                           Positioned(
                             top: 4,
                             right: 4,
                             child: GestureDetector(
                               onTap: () {
                                 setState(() {
-                                  _selectedImages.remove(xFile);
+                                  _photos.remove(photo);
                                 });
                               },
                               child: Container(
@@ -751,14 +812,22 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             // PDPA Auto-blur Switch
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('เบลอใบหน้าและป้ายทะเบียน'),
+              title: const Text('เบลอใบหน้าคนในรูปอัตโนมัติ'),
+              subtitle: FaceBlurService.isSupported
+                  ? null
+                  : const Text('ใช้ได้ในแอปมือถือเท่านั้น'),
               value: _isAutoBlurEnabled,
               activeColor: AppColors.primary,
-              onChanged: (val) {
-                setState(() {
-                  _isAutoBlurEnabled = val;
-                });
-              },
+              onChanged: FaceBlurService.isSupported
+                  ? (val) {
+                      setState(() => _isAutoBlurEnabled = val);
+                      if (val) {
+                        for (final p in _photos) {
+                          _blur(p);
+                        }
+                      }
+                    }
+                  : null,
             ),
             const Divider(height: 24),
             ],
@@ -931,3 +1000,14 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   }
 }
 
+/// รูปที่ผู้แจ้งเลือก: เก็บทั้งต้นฉบับและฉบับเบลอใบหน้า อัปโหลดตามสวิตช์เบลอ
+class _Photo {
+  _Photo(this.file, this.original);
+
+  final XFile file;
+  final Uint8List original;
+  Uint8List? blurred;
+  int faceCount = 0;
+  bool blurring = false;
+  String? error;
+}
