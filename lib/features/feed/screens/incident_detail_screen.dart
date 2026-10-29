@@ -4,6 +4,7 @@ import 'package:bok_mai_mobile/core/theme/app_colors.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
 import 'package:bok_mai_mobile/features/feed/widgets/incident_status_badge.dart';
+import 'package:bok_mai_mobile/features/feed/widgets/incident_updates_section.dart';
 
 class IncidentDetailScreen extends StatefulWidget {
   final IncidentModel incident;
@@ -215,7 +216,11 @@ class _IncidentDetailScreenState extends State<IncidentDetailScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
+
+                // หมายเหตุ/feedback จากเจ้าหน้าที่ (เห็นเฉพาะเจ้าของเรื่อง)
+                IncidentUpdatesSection(incidentId: incident.id),
+                const SizedBox(height: 8),
 
                 // Lifecycle Timeline (State Machine)
                 Text('ไทม์ไลน์ความคืบหน้า (Status Lifecycle)', style: theme.textTheme.titleMedium),

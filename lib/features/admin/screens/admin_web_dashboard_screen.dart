@@ -12,6 +12,7 @@ import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
 import 'package:bok_mai_mobile/features/feed/providers/feed_provider.dart';
 import 'package:bok_mai_mobile/features/feed/widgets/incident_status_badge.dart';
+import 'package:bok_mai_mobile/features/feed/widgets/incident_updates_section.dart';
 
 class AdminWebDashboardScreen extends ConsumerStatefulWidget {
   const AdminWebDashboardScreen({super.key});
@@ -33,6 +34,59 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
   void dispose() {
     _noteController.dispose();
     super.dispose();
+  }
+
+  /// ส่งข้อความถึงผู้แจ้งโดยไม่เปลี่ยนสถานะ (ลงชื่อแอดมินที่ส่ง)
+  void _showFeedbackDialog(IncidentModel incident) {
+    final controller = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ส่ง Feedback ถึงผู้แจ้ง'),
+        content: SizedBox(
+          width: 460,
+          child: TextField(
+            controller: controller,
+            maxLines: 4,
+            maxLength: 1000,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'ข้อความถึงผู้แจ้ง จะลงชื่อของคุณกำกับ',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
+          FilledButton(
+            onPressed: () async {
+              final note = controller.text.trim();
+              if (note.isEmpty) return;
+              if (!ref.read(firebaseReadyProvider)) {
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('ส่งได้เมื่อเชื่อมต่อ Firebase แล้วเท่านั้น')),
+                );
+                return;
+              }
+              try {
+                await ref.read(incidentRepositoryProvider).adminSendFeedback(
+                      issueId: incident.id,
+                      status: incident.status,
+                      note: note,
+                    );
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(content: Text('ส่ง Feedback ไม่สำเร็จ: $e')));
+                return;
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+              messenger.showSnackBar(const SnackBar(content: Text('ส่ง Feedback แล้ว')));
+            },
+            child: const Text('ส่ง'),
+          ),
+        ],
+      ),
+    ).whenComplete(controller.dispose);
   }
 
   void _showUpdateStatusDialog(IncidentModel incident) {
@@ -510,7 +564,19 @@ class _AdminWebDashboardScreenState extends ConsumerState<AdminWebDashboardScree
                   const SizedBox(height: 8),
                   Text('GPS: ${_selectedIncidentForManage!.latitude}, ${_selectedIncidentForManage!.longitude}',
                       style: theme.textTheme.bodySmall),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
+                  IncidentUpdatesSection(
+                    incidentId: _selectedIncidentForManage!.id,
+                    editable: true,
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _showFeedbackDialog(_selectedIncidentForManage!),
+                    icon: const Icon(Icons.forum_rounded),
+                    label: const Text('ส่ง Feedback ถึงผู้แจ้ง'),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                  ),
+                  const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: () => _showUpdateStatusDialog(_selectedIncidentForManage!),
                     icon: const Icon(Icons.edit_note_rounded),

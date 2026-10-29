@@ -4,5 +4,5 @@ export function geminiConfig(): { apiKey: string; model: string } {
   if (!apiKey) {
     throw new Error('ยังไม่ได้ตั้ง GEMINI_API_KEY ใน functions/.env');
   }
-  return { apiKey, model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' };
+  return { apiKey, model: process.env.GEMINI_MODEL || 'gemini-flash-latest' };
 }

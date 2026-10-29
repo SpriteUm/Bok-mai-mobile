@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bok_mai_mobile/data/repositories/incident_repository.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import '../models/incident_model.dart';
+import '../models/incident_update_model.dart';
 
 final mockIncidentsData = [
   IncidentModel(
@@ -154,6 +155,15 @@ final incidentFeedProvider =
 
 final selectedCategoryFilterProvider = StateProvider<IncidentCategory?>((ref) => null);
 
+
+/// Timeline / feedback ของเรื่องหนึ่ง (อ่านได้เฉพาะเจ้าของเรื่องและ admin) ไม่พร้อมก็คืนรายการว่าง
+final incidentUpdatesProvider =
+    StreamProvider.autoDispose.family<List<IncidentUpdate>, String>((ref, issueId) {
+  final ready = ref.watch(firebaseReadyProvider);
+  final signedIn = ref.watch(authStateProvider).valueOrNull != null;
+  if (!ready || !signedIn) return Stream.value(const <IncidentUpdate>[]);
+  return ref.watch(incidentRepositoryProvider).watchUpdates(issueId);
+});
 
 /// ประวัติของฉัน: เรื่องที่ตัวเองแจ้ง (issues ที่ reporterId == uid) ไม่งั้นใช้ข้อมูลจำลอง
 final myIncidentsProvider = StreamProvider<List<IncidentModel>>((ref) {

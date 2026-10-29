@@ -3,6 +3,7 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { geminiConfig } from './config';
 
 initializeApp();
 setGlobalOptions({ region: 'asia-southeast1' });
@@ -129,6 +130,61 @@ export const adminUpdateStatus = onCall(async (req) => {
     createdAt: FieldValue.serverTimestamp(),
   });
   await batch.commit();
+});
+
+// Voice-to-Report: ให้ Gemini ร่างแบบฟอร์มจากข้อความที่ผู้ใช้พูด (ผู้ใช้ตรวจแก้ได้ก่อนส่ง)
+const REPORT_CATEGORIES = ['electric', 'water', 'road', 'waste', 'drainage', 'other'];
+const REPORT_URGENCIES = ['low', 'medium', 'high'];
+
+export const draftReport = onCall(async (req) => {
+  requireAuth(req.auth?.uid);
+  const transcript = String(req.data?.transcript ?? '').trim().slice(0, 2000);
+  if (!transcript) throw new HttpsError('invalid-argument', 'ต้องระบุข้อความ');
+
+  const { apiKey, model } = geminiConfig();
+  const prompt =
+    'คุณคือผู้ช่วยร่างแบบฟอร์มแจ้งปัญหาสาธารณะของเมืองในประเทศไทย ' +
+    'จากคำพูดของผู้ใช้ต่อไปนี้ ให้ร่างแบบฟอร์มเป็นภาษาไทย ' +
+    'title คือหัวข้อสั้นไม่เกิน 60 ตัวอักษร, ' +
+    'description คือรายละเอียดที่เรียบเรียงใหม่ให้อ่านง่าย โดยไม่เพิ่มข้อเท็จจริงที่ผู้ใช้ไม่ได้พูด, ' +
+    `category เลือกจาก ${REPORT_CATEGORIES.join('|')} ` +
+    '(electric=ไฟฟ้า, water=ประปา/น้ำท่วม, road=ถนน/ทางเท้า, waste=ขยะ, drainage=ท่อระบายน้ำ, other=อื่นๆ), ' +
+    'urgency เลือก high เมื่อมีอันตรายต่อชีวิตหรือกระทบการสัญจรรุนแรง, low เมื่อไม่กระทบใคร, นอกนั้น medium\n\n' +
+    `คำพูดผู้ใช้: """${transcript}"""`;
+
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            title: { type: 'STRING' },
+            description: { type: 'STRING' },
+            category: { type: 'STRING', enum: REPORT_CATEGORIES },
+            urgency: { type: 'STRING', enum: REPORT_URGENCIES },
+          },
+          required: ['title', 'description', 'category', 'urgency'],
+        },
+      },
+    }),
+  });
+  if (!res.ok) throw new HttpsError('internal', `Gemini ตอบกลับผิดพลาด (${res.status})`);
+
+  const body = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = body.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new HttpsError('internal', 'Gemini ไม่ส่งผลลัพธ์กลับมา');
+
+  const out = JSON.parse(text) as Record<string, unknown>;
+  return {
+    title: String(out.title ?? '').slice(0, 80),
+    description: String(out.description ?? transcript),
+    category: REPORT_CATEGORIES.includes(String(out.category)) ? out.category : 'other',
+    urgency: REPORT_URGENCIES.includes(String(out.urgency)) ? out.urgency : 'medium',
+  };
 });
 
 // TODO: ฟังก์ชันที่ต้องใช้ Gemini (เก็บ GEMINI_API_KEY ด้วย `firebase functions:secrets:set GEMINI_API_KEY`)
