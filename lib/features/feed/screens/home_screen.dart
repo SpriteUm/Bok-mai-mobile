@@ -5,6 +5,7 @@ import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/screens/incident_detail_screen.dart';
 import '../models/incident_model.dart';
 import '../providers/feed_provider.dart';
+import '../widgets/emergency_note.dart';
 import '../widgets/incident_card.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -66,6 +67,13 @@ class HomeScreen extends ConsumerWidget {
       ),
       body: CustomScrollView(
         slivers: [
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: EmergencyNote(),
+            ),
+          ),
+
           // Category Quick Filter Chips
           SliverToBoxAdapter(
             child: SingleChildScrollView(

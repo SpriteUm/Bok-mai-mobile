@@ -13,6 +13,11 @@ service cloud.firestore {
             || request.auth.token.get('admin', false) == true);
     }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    // ข้อความหมวด "อื่นๆ" ที่ผู้แจ้งพิมพ์เอง (ไม่บังคับ)
+    function validCategoryNote() {
+      return !('categoryNote' in request.resource.data)
+        || (request.resource.data.categoryNote is string && request.resource.data.categoryNote.size() <= 100);
+    }
 
     // โหมดไม่ใช้ Cloud Functions (แผน Spark): แอปเขียน issues + issues_feed พร้อมกันใน batch
     // แล้วให้ rules ตรวจความถูกต้องแทน
@@ -45,7 +50,7 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
-          'reporterId', 'categoryCode', 'title', 'description', 'urgency', 'status',
+          'reporterId', 'categoryCode', 'categoryNote', 'title', 'description', 'urgency', 'status',
           'location', 'geohash', 'addressText', 'reportCount', 'images',
           'createdAt', 'updatedAt'])
         && request.resource.data.reporterId == request.auth.uid
@@ -54,6 +59,7 @@ service cloud.firestore {
         && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
         && request.resource.data.description is string
         && request.resource.data.description.size() <= 2000
+        && validCategoryNote()
         && request.resource.data.urgency in ['low', 'medium', 'high']
         && request.resource.data.status == 'pending'
         && request.resource.data.reportCount == 1
@@ -71,6 +77,12 @@ service cloud.firestore {
         && request.resource.data.status in ['pending', 'in_progress', 'resolved']
         && request.resource.data.updatedAt == request.time;
 
+      // admin กำหนดลำดับความสำคัญ (ผู้แจ้งตั้งเองไม่ได้ ใช้ urgency เป็นค่าประเมินของผู้แจ้งแทน)
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priority', 'updatedAt'])
+        && request.resource.data.priority in ['low', 'medium', 'high']
+        && request.resource.data.updatedAt == request.time;
+
       // เจ้าของกด Re-open: resolved -> in_progress
       allow update: if isOwner(resource.data.reporterId)
         && resource.data.status == 'resolved'
@@ -83,12 +95,13 @@ service cloud.firestore {
         && resource.data.status == 'pending'
         && resource.data.reportCount == 1
         && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['categoryCode', 'title', 'description', 'urgency', 'addressText', 'updatedAt'])
+            .hasOnly(['categoryCode', 'categoryNote', 'title', 'description', 'urgency', 'addressText', 'updatedAt'])
         && exists(/databases/$(database)/documents/categories/$(request.resource.data.categoryCode))
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
         && request.resource.data.description is string
         && request.resource.data.description.size() <= 2000
+        && validCategoryNote()
         && request.resource.data.urgency in ['low', 'medium', 'high']
         && request.resource.data.updatedAt == request.time;
 
@@ -126,12 +139,13 @@ service cloud.firestore {
       allow create: if signedIn()
         && !('reporterId' in request.resource.data)
         && request.resource.data.keys().hasOnly([
-          'categoryCode', 'title', 'description', 'urgency', 'status',
+          'categoryCode', 'categoryNote', 'title', 'description', 'urgency', 'status',
           'location', 'geohash', 'addressText', 'reportCount', 'images',
           'createdAt', 'updatedAt'])
         && getAfter(/databases/$(database)/documents/issues/$(issueId)).data.reporterId == request.auth.uid
         && request.resource.data.categoryCode == getAfter(/databases/$(database)/documents/issues/$(issueId)).data.categoryCode
         && request.resource.data.title == getAfter(/databases/$(database)/documents/issues/$(issueId)).data.title
+        && validCategoryNote()
         && request.resource.data.location == getAfter(/databases/$(database)/documents/issues/$(issueId)).data.location
         && request.resource.data.status == 'pending'
         && request.resource.data.reportCount == 1
@@ -142,6 +156,12 @@ service cloud.firestore {
       allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'images', 'updatedAt'])
         && request.resource.data.status in ['pending', 'in_progress', 'resolved']
+        && request.resource.data.updatedAt == request.time;
+
+      // admin กำหนดลำดับความสำคัญ (ผู้แจ้งตั้งเองไม่ได้ ใช้ urgency เป็นค่าประเมินของผู้แจ้งแทน)
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priority', 'updatedAt'])
+        && request.resource.data.priority in ['low', 'medium', 'high']
         && request.resource.data.updatedAt == request.time;
 
       // เจ้าของ Re-open
@@ -156,11 +176,12 @@ service cloud.firestore {
         && resource.data.status == 'pending'
         && resource.data.reportCount == 1
         && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['categoryCode', 'title', 'description', 'urgency', 'addressText', 'updatedAt'])
+            .hasOnly(['categoryCode', 'categoryNote', 'title', 'description', 'urgency', 'addressText', 'updatedAt'])
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
         && request.resource.data.description is string
         && request.resource.data.description.size() <= 2000
+        && validCategoryNote()
         && request.resource.data.urgency in ['low', 'medium', 'high']
         && request.resource.data.updatedAt == request.time;
 

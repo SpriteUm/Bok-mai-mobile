@@ -40,6 +40,19 @@ class AppColors {
   static const Color statusResolvedContainer = Color(0xFFDCFCE7);
   static const Color statusResolvedOnContainer = Color(0xFF15803D);
 
+  // Urgency
+  static const Color urgencyLow = Color(0xFF16A34A);
+  static const Color urgencyLowContainer = Color(0xFFDCFCE7);
+  static const Color urgencyLowOnContainer = Color(0xFF166534);
+
+  static const Color urgencyMedium = Color(0xFFD97706);
+  static const Color urgencyMediumContainer = Color(0xFFFEF3C7);
+  static const Color urgencyMediumOnContainer = Color(0xFF92400E);
+
+  static const Color urgencyHigh = Color(0xFFDC2626);
+  static const Color urgencyHighContainer = Color(0xFFFEE2E2);
+  static const Color urgencyHighOnContainer = Color(0xFF991B1B);
+
   // Error
   static const Color error = Color(0xFFBA1A1A);
   static const Color onError = Color(0xFFFFFFFF);

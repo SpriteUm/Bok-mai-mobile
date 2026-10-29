@@ -1,24 +1,32 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:bok_mai_mobile/core/constants/map_config.dart';
 import 'package:bok_mai_mobile/core/constants/cloudinary_config.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
 import 'package:bok_mai_mobile/data/services/image_upload_service.dart';
-import 'package:bok_mai_mobile/data/services/speech_service.dart';
 import 'package:bok_mai_mobile/data/services/voice_report_drafter.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:bok_mai_mobile/features/feed/providers/feed_provider.dart';
+import 'package:bok_mai_mobile/features/feed/widgets/incident_urgency_badge.dart';
+import 'package:bok_mai_mobile/features/report/screens/location_picker_screen.dart';
+import 'package:bok_mai_mobile/features/report/screens/voice_report_screen.dart';
 
 class ReportFormScreen extends ConsumerStatefulWidget {
-  const ReportFormScreen({super.key, this.editing});
+  const ReportFormScreen({super.key, this.editing, this.initialStory});
 
   /// ถ้าส่งมา = โหมดแก้ไขรายงานเดิม (แก้ได้เฉพาะข้อความ หมวดหมู่ และความเร่งด่วน)
   final IncidentModel? editing;
+
+  /// เรื่องที่ผู้ใช้เล่าไว้ (เช่นจากแชตผู้ช่วย AI) ให้ AI ร่างฟอร์มทันทีที่เปิด
+  final String? initialStory;
 
   @override
   ConsumerState<ReportFormScreen> createState() => _ReportFormScreenState();
@@ -28,19 +36,33 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
+  final _categoryNoteController = TextEditingController();
   final _locationController = TextEditingController(
     text: 'ถนนฉลองกรุง แขวงลาดกระบัง เขตลาดกระบัง กทม.',
   );
 
   IncidentCategory _selectedCategory = IncidentCategory.road;
+  /// ความเร่งด่วนเบื้องต้นจาก AI (ผู้แจ้งไม่ได้เลือกเอง เจ้าหน้าที่เป็นผู้ตัดสินลำดับความสำคัญจริง)
   IncidentUrgency _selectedUrgency = IncidentUrgency.medium;
+
+  /// ข้อความ (หัวข้อ+รายละเอียด) ที่ AI ประเมินความเร่งด่วนไปแล้ว ถ้าข้อความเปลี่ยนจะประเมินใหม่ตอนส่ง
+  String? _urgencyAssessedFor;
+
+  /// จุดเกิดเหตุที่จะส่ง: เริ่มจาก GPS แล้วผู้ใช้ปรับเองบนแผนที่ได้
+  LatLng? _pickedPoint;
+  bool _locating = false;
   final List<XFile> _selectedImages = [];
   final ImagePicker _picker = ImagePicker();
 
-  final SpeechService _speech = SpeechService();
-  bool _isRecording = false;
   bool _drafting = false;
-  String _transcript = '';
+
+  /// ช่องเล่าปัญหาแบบแชต (พิมพ์ หรือข้อความที่ถอดจากเสียงจะขึ้นที่นี่)
+  final _storyController = TextEditingController();
+
+  /// ข้อความล่าสุดที่ผู้ใช้เล่า และคำตอบว่าร่างอะไรให้ (แสดงเป็นบับเบิลแชต)
+  String? _lastStory;
+  String? _draftReply;
+  bool _draftReplyFromAi = false;
   bool _isAutoBlurEnabled = true;
 
   bool get _isEdit => widget.editing != null;
@@ -53,8 +75,18 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
       _titleController.text = e.title;
       _descController.text = e.description;
       _locationController.text = e.locationAddress;
+      _categoryNoteController.text = e.categoryNote;
       _selectedCategory = e.category;
       _selectedUrgency = e.urgency;
+      _urgencyAssessedFor = _storyKey();
+    } else {
+      _useCurrentLocation(silent: true);
+      final story = widget.initialStory?.trim() ?? '';
+      if (story.isNotEmpty) {
+        _drafting = true;
+        _lastStory = story;
+        _draftFrom(story);
+      }
     }
   }
 
@@ -62,8 +94,9 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
+    _categoryNoteController.dispose();
+    _storyController.dispose();
     _locationController.dispose();
-    _speech.cancel();
     super.dispose();
   }
 
@@ -93,60 +126,65 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  /// กดครั้งแรกเริ่มฟัง กดอีกครั้ง (หรือพูดจบ) แล้วให้ AI ร่างฟอร์มจากสิ่งที่พูด
-  Future<void> _toggleVoiceReport() async {
+  /// เปิดหน้า Voice-to-Report พูดจบแล้วส่งข้อความกลับมาให้ AI ร่างฟอร์มนี้
+  Future<void> _openVoicePage() async {
     if (_drafting) return;
-    if (_isRecording) {
-      await _speech.stop();
-      return;
-    }
-
-    _transcript = '';
-    final started = await _speech.start(
-      onResult: (text) => _transcript = text,
-      onDone: _onSpeechDone,
-      onError: (e) {
-        if (mounted) setState(() => _isRecording = false);
-        _showMessage('ฟังเสียงไม่สำเร็จ: $e');
-      },
+    final story = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const VoiceReportScreen(returnStory: true)),
     );
-    if (!mounted) return;
-    if (!started) {
-      _showMessage('ใช้ไมโครโฟนไม่ได้ โปรดอนุญาตสิทธิ์ไมค์แล้วลองใหม่');
-      return;
-    }
-    setState(() => _isRecording = true);
+    if (story == null || story.trim().isEmpty || !mounted) return;
+    _storyController.text = story.trim();
+    await _sendStory();
   }
 
-  Future<void> _onSpeechDone() async {
-    if (!mounted || !_isRecording) return;
+  /// ส่งเรื่องที่เล่า (พิมพ์หรือพูด) ให้ AI ร่างฟอร์ม เหมือนส่งข้อความในแชต
+  Future<void> _sendStory() async {
+    final text = _storyController.text.trim();
+    if (text.isEmpty || _drafting) return;
+    FocusScope.of(context).unfocus();
     setState(() {
-      _isRecording = false;
       _drafting = true;
+      _lastStory = text;
+      _draftReply = null;
+      _storyController.clear();
     });
+    await _draftFrom(text);
+  }
 
-    final transcript = _transcript.trim();
-    if (transcript.isEmpty) {
-      setState(() => _drafting = false);
-      _showMessage('ไม่ได้ยินเสียงพูด ลองกดไมค์แล้วพูดใหม่อีกครั้ง');
-      return;
-    }
-
+  /// ให้ AI ร่างฟอร์มจากข้อความ (เสียงที่ถอดแล้ว หรือที่พิมพ์) ผู้ใช้ตรวจแก้ได้ก่อนส่ง
+  Future<void> _draftFrom(String transcript) async {
     try {
       final draft = await ref.read(voiceReportDrafterProvider).draft(transcript);
       if (!mounted) return;
+      final category = draft.category == IncidentCategory.other && draft.categoryNote.isNotEmpty
+          ? 'อื่นๆ: ${draft.categoryNote}'
+          : IncidentModel.labelFor(draft.category);
       setState(() {
         _titleController.text = draft.title;
         _descController.text = draft.description;
         _selectedCategory = draft.category;
+        _categoryNoteController.text = draft.categoryNote;
         _selectedUrgency = draft.urgency;
+        _draftReplyFromAi = draft.aiDrafted;
+        _urgencyAssessedFor = _storyKey();
+        _draftReply = draft.aiDrafted
+            ? 'ร่างฟอร์มให้แล้ว\n'
+                '- หัวข้อ: ${draft.title}\n'
+                '- หมวด: $category\n'
+                '- ความเร่งด่วน: ${UrgencyStyle.of(draft.urgency).label}\n'
+                'ตรวจและแก้ไขได้ในฟอร์มด้านล่าง แล้วแนบรูปกับปักหมุดก่อนส่ง'
+            : 'ตอนนี้ใช้ AI ไม่ได้ จึงเดาหัวข้อและหมวดจากคำสำคัญแทน (หมวด: $category) '
+                'โปรดตรวจหัวข้อและหมวดหมู่ด้านล่างก่อนส่ง';
       });
-      _showMessage('ร่างแบบฟอร์มจากเสียงของคุณแล้ว โปรดตรวจสอบก่อนส่ง');
     } catch (e) {
-      // ร่างไม่ได้ก็เก็บข้อความที่พูดไว้ในช่องรายละเอียด ไม่ให้เสียคำพูดผู้ใช้
+      // ร่างไม่ได้ก็เก็บข้อความที่เล่าไว้ในช่องรายละเอียด ไม่ให้เสียข้อความผู้ใช้
       if (!mounted) return;
-      setState(() => _descController.text = transcript);
-      _showMessage('ร่างแบบฟอร์มไม่สำเร็จ ใส่ข้อความที่พูดไว้ในรายละเอียดแล้ว');
+      setState(() {
+        _descController.text = transcript;
+        _draftReplyFromAi = false;
+        _draftReply = 'ร่างแบบฟอร์มไม่สำเร็จ ใส่ข้อความของคุณไว้ในช่องรายละเอียดแล้ว';
+      });
     } finally {
       if (mounted) setState(() => _drafting = false);
     }
@@ -154,26 +192,72 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
 
   bool _submitting = false;
 
-  /// พิกัดปัจจุบัน ถ้าไม่ได้สิทธิ์/ปิด GPS ใช้พิกัดกลางลาดกระบังแทน
-  Future<({double lat, double lng})> _currentPosition() async {
-    const fallback = (lat: 13.7299, lng: 100.7782);
+  /// พิกัดปัจจุบันจาก GPS หรือ null ถ้าไม่ได้สิทธิ์/ปิด GPS
+  Future<LatLng?> _gpsPosition() async {
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) return fallback;
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        return fallback;
+        return null;
       }
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(timeLimit: Duration(seconds: 8)),
       );
-      return (lat: pos.latitude, lng: pos.longitude);
+      return LatLng(pos.latitude, pos.longitude);
     } catch (_) {
-      return fallback;
+      return null;
     }
+  }
+
+  /// ใช้ตำแหน่ง GPS ปัจจุบันเป็นจุดเกิดเหตุ ([silent] = ตอนเปิดฟอร์ม ไม่ทับจุดที่ผู้ใช้เลือกเองแล้ว)
+  Future<void> _useCurrentLocation({bool silent = false}) async {
+    setState(() => _locating = true);
+    final point = await _gpsPosition();
+    if (!mounted) return;
+    setState(() {
+      _locating = false;
+      if (point != null && (!silent || _pickedPoint == null)) _pickedPoint = point;
+    });
+    if (!silent) {
+      _showMessage(point == null
+          ? 'หาตำแหน่งปัจจุบันไม่ได้ โปรดเปิด GPS หรือเลือกจุดบนแผนที่เอง'
+          : 'อัปเดตพิกัด GPS ปัจจุบันแล้ว');
+    }
+  }
+
+  Future<void> _pickOnMap() async {
+    final picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(
+          initial: _pickedPoint ?? MapConfig.defaultCenter,
+          onLocateMe: _gpsPosition,
+        ),
+      ),
+    );
+    if (picked != null && mounted) setState(() => _pickedPoint = picked);
+  }
+
+  String _storyKey() => '${_titleController.text.trim()}\n${_descController.text.trim()}';
+
+  /// AI คัดกรองความเร่งด่วนเบื้องต้นด้วยเกณฑ์เดียวกันทุกเรื่อง (ประเมินใหม่เมื่อข้อความเปลี่ยน)
+  /// ถ้า AI ใช้ไม่ได้ ระบบเดาจากคำสำคัญแทน เจ้าหน้าที่ปรับลำดับความสำคัญจริงได้ภายหลัง
+  Future<IncidentUrgency> _screenUrgency() async {
+    final key = _storyKey();
+    if (key == _urgencyAssessedFor) return _selectedUrgency;
+    try {
+      final draft = await ref.read(voiceReportDrafterProvider).draft(
+            'หัวข้อ: ${_titleController.text.trim()}\nรายละเอียด: ${_descController.text.trim()}',
+          );
+      _selectedUrgency = draft.urgency;
+      _urgencyAssessedFor = key;
+    } catch (_) {
+      // คัดกรองไม่ได้ก็ใช้ค่าเดิม เจ้าหน้าที่ตัดสินอยู่แล้ว
+    }
+    return _selectedUrgency;
   }
 
   Future<void> _saveEdit() async {
@@ -184,13 +268,15 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
       return;
     }
     setState(() => _submitting = true);
+    final urgency = await _screenUrgency();
     try {
       await ref.read(incidentRepositoryProvider).updateIssue(
             widget.editing!.copyWith(
               title: _titleController.text.trim(),
               description: _descController.text.trim(),
               category: _selectedCategory,
-              urgency: _selectedUrgency,
+              categoryNote: _categoryNoteController.text.trim(),
+              urgency: urgency,
               locationAddress: _locationController.text.trim(),
             ),
           );
@@ -210,7 +296,8 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     if (!_formKey.currentState!.validate() || _submitting) return;
     setState(() => _submitting = true);
 
-    final position = await _currentPosition();
+    final urgency = await _screenUrgency();
+    final position = _pickedPoint ?? await _gpsPosition() ?? MapConfig.defaultCenter;
 
     // อัปโหลดรูปไป Cloudinary แล้วเก็บเป็นลิงก์ (สูงสุด 5 รูปตาม firestore.rules)
     var imageUrls = <String>[];
@@ -235,11 +322,12 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
       title: _titleController.text.trim(),
       description: _descController.text.trim(),
       category: _selectedCategory,
+      categoryNote: _categoryNoteController.text.trim(),
       status: IncidentStatus.pending,
-      urgency: _selectedUrgency,
+      urgency: urgency,
       locationAddress: _locationController.text.trim(),
-      latitude: position.lat,
-      longitude: position.lng,
+      latitude: position.latitude,
+      longitude: position.longitude,
       imageUrls: imageUrls,
       upvoteCount: 1,
       hasUpvoted: true,
@@ -284,6 +372,259 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     );
   }
 
+  Widget _chatBubble(ThemeData theme, String text, {required bool fromUser, bool fromAi = false}) {
+    return Align(
+      alignment: fromUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        constraints: const BoxConstraints(maxWidth: 520),
+        decoration: BoxDecoration(
+          color: fromUser ? AppColors.primary : AppColors.surfaceContainerLowest,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(AppRadius.lg),
+            topRight: const Radius.circular(AppRadius.lg),
+            bottomLeft: Radius.circular(fromUser ? AppRadius.lg : AppRadius.xs),
+            bottomRight: Radius.circular(fromUser ? AppRadius.xs : AppRadius.lg),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!fromUser) ...[
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    fromAi ? Icons.auto_awesome_rounded : Icons.rule_rounded,
+                    size: 14,
+                    color: fromAi ? AppColors.primary : AppColors.outline,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    fromAi ? 'AI ร่างให้' : 'ร่างจากคำสำคัญ (ไม่ใช่ AI)',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: fromAi ? AppColors.primary : AppColors.outline,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+            ],
+            Text(
+              text,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: fromUser ? AppColors.onPrimary : AppColors.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// แถบ Voice-to-Report แบบแชต: บับเบิลเรื่องที่เล่า + คำตอบของ AI + ช่องพิมพ์ที่มีไมค์และปุ่มส่ง
+  Widget _aiDraftChat(ThemeData theme) {
+    final reply = _draftReply;
+    return Card(
+      color: AppColors.primaryContainer.withValues(alpha: 0.5),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        side: BorderSide(color: AppColors.primary.withValues(alpha: 0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome_rounded, color: AppColors.primary, size: 20),
+                const SizedBox(width: 6),
+                Text(
+                  'Voice-to-Report',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: AppColors.onPrimaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'กดไมค์แล้วพูดเล่าปัญหาที่พบ AI ช่วยร่างแบบฟอร์มให้ ตรวจแก้ได้ก่อนส่ง (พิมพ์แทนก็ได้)',
+              style: theme.textTheme.bodySmall,
+            ),
+            if (_lastStory != null) ...[
+              const SizedBox(height: 12),
+              _chatBubble(theme, _lastStory!, fromUser: true),
+              if (_drafting)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('AI กำลังร่างแบบฟอร์ม...', style: theme.textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                )
+              else if (reply != null)
+                _chatBubble(theme, reply, fromUser: false, fromAi: _draftReplyFromAi),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _storyController,
+                    enabled: !_drafting,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _sendStory(),
+                    decoration: InputDecoration(
+                      hintText: 'กดไมค์เพื่อพูด หรือพิมพ์เล่าปัญหา...',
+                      filled: true,
+                      fillColor: AppColors.surfaceContainerLowest,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.xl),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // ปุ่มหลักคือไมค์ (Voice-to-Report) ถ้าพิมพ์ข้อความไว้ ปุ่มเปลี่ยนเป็นส่ง เหมือนแอปแชต
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _storyController,
+                  builder: (context, value, _) {
+                    final typed = value.text.trim().isNotEmpty;
+                    return IconButton.filled(
+                      tooltip: typed ? 'ส่งให้ AI ร่าง' : 'กดแล้วพูดเล่าปัญหา',
+                      style: IconButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(52, 52),
+                      ),
+                      onPressed: _drafting ? null : (typed ? _sendStory : _openVoicePage),
+                      icon: Icon(typed ? Icons.send_rounded : Icons.mic_rounded, size: 26),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// แผนที่ย่อแสดงจุดที่จะส่ง กดเพื่อเลือกจุดเองบนแผนที่เต็มจอ
+  Widget _locationPreview(ThemeData theme) {
+    final point = _pickedPoint;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: SizedBox(
+            height: 160,
+            child: point == null
+                ? ColoredBox(
+                    color: AppColors.surfaceContainerHigh,
+                    child: Center(
+                      child: _locating
+                          ? const CircularProgressIndicator()
+                          : const Text('ยังไม่ได้เลือกตำแหน่ง แตะ "เลือกบนแผนที่"'),
+                    ),
+                  )
+                : Stack(
+                    children: [
+                      FlutterMap(
+                        // เปลี่ยน key เมื่อจุดเปลี่ยน เพื่อให้แผนที่ย่อเลื่อนไปที่จุดใหม่
+                        key: ValueKey(point),
+                        options: MapOptions(
+                          initialCenter: point,
+                          initialZoom: 16,
+                          interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate: MapConfig.tileUrl,
+                            userAgentPackageName: MapConfig.userAgentPackageName,
+                          ),
+                          MarkerLayer(
+                            markers: [
+                              Marker(
+                                point: point,
+                                width: 40,
+                                height: 40,
+                                alignment: Alignment.topCenter,
+                                child: const Icon(Icons.location_on_rounded, size: 40, color: AppColors.error),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Positioned.fill(
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(onTap: _pickOnMap),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+        if (point != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            'GPS: ${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _locating ? null : () => _useCurrentLocation(),
+                icon: const Icon(Icons.my_location_rounded),
+                label: const Text('ตำแหน่งปัจจุบัน'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.tonalIcon(
+                onPressed: _pickOnMap,
+                icon: const Icon(Icons.edit_location_alt_rounded),
+                label: const Text('เลือกบนแผนที่'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -298,68 +639,8 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             if (!_isEdit) ...[
-            // Voice-to-Report AI Banner
-            Card(
-              color: AppColors.primaryContainer.withValues(alpha: 0.5),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                side: BorderSide(color: AppColors.primary.withValues(alpha: 0.2)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.auto_awesome_rounded,
-                                color: AppColors.primary,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Voice-to-Report',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: AppColors.onPrimaryContainer,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _isRecording
-                                ? 'กำลังฟัง... พูดปัญหาที่พบ แล้วกดหยุดเมื่อพูดจบ'
-                                : _drafting
-                                    ? 'กำลังร่างแบบฟอร์ม...'
-                                    : 'กดอัดเสียงพูดปัญหา AI ช่วยร่างแบบฟอร์มให้ ตรวจแก้ได้ก่อนส่ง',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      style: IconButton.styleFrom(
-                        backgroundColor: _isRecording
-                            ? AppColors.error
-                            : AppColors.primary,
-                        minimumSize: const Size(48, 48),
-                      ),
-                      onPressed: _drafting ? null : _toggleVoiceReport,
-                      icon: Icon(
-                        _isRecording ? Icons.stop_rounded : Icons.mic_rounded,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            // Voice-to-Report: เล่าปัญหาแบบแชต (พิมพ์หรือพูด) ให้ AI ร่างฟอร์ม
+            _aiDraftChat(theme),
             const SizedBox(height: 20),
 
             // Image Picker Section
@@ -538,32 +819,77 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                 }
               },
             ),
+            if (_selectedCategory == IncidentCategory.other) ...[
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _categoryNoteController,
+                maxLength: 100,
+                decoration: InputDecoration(
+                  labelText: 'ระบุหมวดหมู่ปัญหา *',
+                  hintText: 'เช่น ต้นไม้ล้ม, สัตว์จรจัด, ป้ายจราจรชำรุด',
+                  filled: true,
+                  fillColor: AppColors.surfaceContainerLowest,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
+                validator: (val) {
+                  if (_selectedCategory == IncidentCategory.other &&
+                      (val == null || val.trim().isEmpty)) {
+                    return 'โปรดระบุหมวดหมู่ปัญหา';
+                  }
+                  return null;
+                },
+              ),
+            ],
             const SizedBox(height: 16),
 
-            // Urgency Segmented Control
-            Text('ระดับความเร่งด่วน', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            SegmentedButton<IncidentUrgency>(
-              segments: const [
-                ButtonSegment(value: IncidentUrgency.low, label: Text('ปกติ')),
-                ButtonSegment(value: IncidentUrgency.medium, label: Text('ปานกลาง')),
-                ButtonSegment(value: IncidentUrgency.high, label: Text('เร่งด่วน')),
-              ],
-              selected: {_selectedUrgency},
-              onSelectionChanged: (set) {
-                setState(() {
-                  _selectedUrgency = set.first;
-                });
-              },
+            // ความเร่งด่วน: AI คัดกรองเบื้องต้น เจ้าหน้าที่ตัดสินลำดับความสำคัญจริง (ผู้แจ้งไม่ต้องเลือก)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: AppColors.outlineVariant),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ความเร่งด่วน', style: theme.textTheme.titleSmall),
+                        const SizedBox(height: 2),
+                        Text(
+                          'AI จะคัดกรองเบื้องต้นจากหัวข้อและรายละเอียดตอนส่ง '
+                          'แล้วเจ้าหน้าที่จะพิจารณาลำดับความสำคัญจริง จากความรุนแรง จำนวนผู้ร่วมแจ้ง และระยะเวลาที่รอ',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_urgencyAssessedFor != null && _urgencyAssessedFor == _storyKey()) ...[
+                    const SizedBox(width: 8),
+                    IncidentUrgencyBadge(urgency: _selectedUrgency),
+                  ],
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
+            const Divider(height: 32),
 
-            // Incident Title
+            // Incident Title: สั้น บรรทัดเดียว ใช้เป็นชื่อเรื่องในฟีดและรายการแอดมิน
             Text('หัวข้อปัญหา *', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 2),
+            Text('สรุปสั้นๆ ว่าเกิดอะไรขึ้น', style: theme.textTheme.bodySmall),
             const SizedBox(height: 8),
             TextFormField(
               controller: _titleController,
+              maxLength: 80,
+              textInputAction: TextInputAction.next,
               decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.title_rounded),
                 hintText: 'เช่น ฝาท่อแตก, เสาไฟดับ',
                 filled: true,
                 fillColor: AppColors.surfaceContainerLowest,
@@ -580,14 +906,19 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Incident Description
+            // Incident Description: เล่ารายละเอียดยาวได้ แยกจากหัวข้อ
             Text('รายละเอียดเพิ่มเติม *', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 2),
+            Text('เล่าจุดสังเกต ความเสียหาย หรือผลกระทบที่พบ', style: theme.textTheme.bodySmall),
             const SizedBox(height: 8),
             TextFormField(
               controller: _descController,
-              maxLines: 3,
+              minLines: 4,
+              maxLines: 8,
+              keyboardType: TextInputType.multiline,
               decoration: InputDecoration(
-                hintText: 'อธิบายจุดสังเกต หรือความเสียหายที่พบ...',
+                hintText: 'เช่น ฝาท่อหน้าร้านสะดวกซื้อแตกเป็นรู รถจักรยานยนต์เกือบตกลงไป...',
+                alignLabelWithHint: true,
                 filled: true,
                 fillColor: AppColors.surfaceContainerLowest,
                 border: OutlineInputBorder(
@@ -610,15 +941,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
               controller: _locationController,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.location_on_rounded, color: AppColors.primary),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.my_location_rounded),
-                  tooltip: 'ดึงพิกัดปัจจุบัน',
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('อัปเดตพิกัด GPS ปัจจุบันแล้ว')),
-                    );
-                  },
-                ),
+                hintText: 'ที่อยู่หรือจุดสังเกต',
                 filled: true,
                 fillColor: AppColors.surfaceContainerLowest,
                 border: OutlineInputBorder(
@@ -626,6 +949,10 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                 ),
               ),
             ),
+            if (!_isEdit) ...[
+              const SizedBox(height: 8),
+              _locationPreview(theme),
+            ],
             const SizedBox(height: 32),
 
             // Submit Button

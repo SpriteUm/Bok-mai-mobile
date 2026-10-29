@@ -86,6 +86,7 @@ class IncidentRepository {
   Future<void> updateIssue(IncidentModel edited) {
     final patch = <String, dynamic>{
       'categoryCode': edited.category.code,
+      'categoryNote': edited.effectiveCategoryNote,
       'title': edited.title,
       'description': edited.description,
       'urgency': edited.urgency.code,
@@ -151,6 +152,21 @@ class IncidentRepository {
         'note': note,
         'createdAt': FieldValue.serverTimestamp(),
       });
+    return batch.commit();
+  }
+
+  /// admin กำหนดลำดับความสำคัญของงาน (ผู้แจ้งเขียนฟิลด์นี้ไม่ได้ตาม rules)
+  Future<void> adminSetPriority({
+    required String issueId,
+    required IncidentUrgency priority,
+  }) {
+    final patch = <String, dynamic>{
+      'priority': priority.code,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final batch = _db.batch()
+      ..update(_issues.doc(issueId), patch)
+      ..update(_feed.doc(issueId), patch);
     return batch.commit();
   }
 
