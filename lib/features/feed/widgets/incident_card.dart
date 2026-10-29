@@ -9,11 +9,15 @@ class IncidentCard extends StatelessWidget {
   final VoidCallback onUpvote;
   final VoidCallback onTap;
 
+  /// เรื่องที่ผู้ใช้แจ้งเอง: แสดงป้าย "เรื่องของคุณ" แทนปุ่ม +1 (กด +1 เรื่องตัวเองไม่ได้)
+  final bool isMine;
+
   const IncidentCard({
     super.key,
     required this.incident,
     required this.onUpvote,
     required this.onTap,
+    this.isMine = false,
   });
 
   @override
@@ -145,34 +149,46 @@ class IncidentCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      FilledButton.tonalIcon(
-                        onPressed: onUpvote,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: incident.hasUpvoted
-                              ? AppColors.primary
-                              : AppColors.primaryContainer,
-                          foregroundColor: incident.hasUpvoted
-                              ? AppColors.onPrimary
-                              : AppColors.onPrimaryContainer,
-                          minimumSize: const Size(48, 38),
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                      if (isMine)
+                        Chip(
+                          avatar: const Icon(Icons.person_rounded, size: 16),
+                          label: const Text('เรื่องของคุณ'),
+                          visualDensity: VisualDensity.compact,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(AppRadius.full),
                           ),
-                        ),
-                        icon: Icon(
-                          incident.hasUpvoted
-                              ? Icons.check_rounded
-                              : Icons.add_rounded,
-                          size: 16,
-                        ),
-                        label: Text(
-                          incident.hasUpvoted ? 'ติดตามแล้ว' : '+1 ติดตาม',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
+                        )
+                      else
+                        FilledButton.tonalIcon(
+                          onPressed: onUpvote,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: incident.hasUpvoted
+                                ? AppColors.primary
+                                : AppColors.primaryContainer,
+                            foregroundColor: incident.hasUpvoted
+                                ? AppColors.onPrimary
+                                : AppColors.onPrimaryContainer,
+                            minimumSize: const Size(48, 38),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.full,
+                              ),
+                            ),
+                          ),
+                          icon: Icon(
+                            incident.hasUpvoted
+                                ? Icons.check_rounded
+                                : Icons.add_rounded,
+                            size: 16,
+                          ),
+                          label: Text(
+                            incident.hasUpvoted ? 'ติดตามแล้ว' : '+1 ติดตาม',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ],
@@ -184,4 +200,3 @@ class IncidentCard extends StatelessWidget {
     );
   }
 }
-

@@ -41,6 +41,78 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <!--
+    เบลอใบหน้าบนเว็บ (PDPA): ตรวจจับใบหน้าในเบราว์เซอร์ด้วย face-api (SSD MobileNet v1)
+    โมเดลฝึกจากรูปฝูงชน (WIDER FACE) จับหน้าเล็กๆ ไกลๆ ได้ดี รูปไม่ถูกส่งออกไปไหน
+    (บนมือถือใช้ ML Kit แทน) เรียกจาก Dart ผ่าน window.bokMaiDetectFaces
+  -->
+  <script type="module">
+    const FACE_API = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15";
+    // ต่ำพอให้จับคนด้านหลังได้ ทดสอบกับรูปกลุ่มกลางคืนแล้วไม่เจอผิด
+    const MIN_CONFIDENCE = 0.35;
+    let apiPromise;
+
+    function loadFaceApi() {
+      apiPromise ??= (async () => {
+        const faceapi = await import(`${FACE_API}/dist/face-api.esm.js`);
+        await faceapi.tf.setBackend("webgl").catch(() => faceapi.tf.setBackend("cpu"));
+        await faceapi.tf.ready();
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(`${FACE_API}/model`);
+        return faceapi;
+      })();
+      apiPromise.catch(() => { apiPromise = undefined; }); // โหลดพลาด (เน็ตหลุด) ให้ลองใหม่ครั้งหน้าได้
+      return apiPromise;
+    }
+
+    // รวมกรอบที่ซ้อนกัน (หน้าเดียวกันที่เจอซ้ำจากหลายส่วน) เป็นกรอบเดียวที่คลุมทั้งหมด จำนวนหน้าจะได้ถูก
+    function mergeOverlapping(boxes) {
+      const merged = [];
+      for (const [x, y, w, h] of boxes.sort((a, b) => b[2] * b[3] - a[2] * a[3])) {
+        const hit = merged.find(([mx, my, mw, mh]) => {
+          const ix = Math.min(x + w, mx + mw) - Math.max(x, mx);
+          const iy = Math.min(y + h, my + mh) - Math.max(y, my);
+          return ix > 0 && iy > 0 && ix * iy > 0.3 * Math.min(w * h, mw * mh);
+        });
+        if (!hit) { merged.push([x, y, w, h]); continue; }
+        const nx = Math.min(x, hit[0]), ny = Math.min(y, hit[1]);
+        hit[2] = Math.max(x + w, hit[0] + hit[2]) - nx;
+        hit[3] = Math.max(y + h, hit[1] + hit[3]) - ny;
+        hit[0] = nx; hit[1] = ny;
+      }
+      return merged;
+    }
+
+    // คืน JSON [[x, y, w, h], ...] พิกัดตามรูปที่หมุนตั้งตรงแล้ว (ตรงกับ bakeOrientation ฝั่ง Dart)
+    window.bokMaiDetectFaces = async (bytes) => {
+      const faceapi = await loadFaceApi();
+      const options = new faceapi.SsdMobilenetv1Options({ minConfidence: MIN_CONFIDENCE, maxResults: 200 });
+      const image = await createImageBitmap(new Blob([bytes]), { imageOrientation: "from-image" });
+      const boxes = [];
+      const detect = async (x, y, w, h) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(image, x, y, w, h, 0, 0, w, h);
+        for (const d of await faceapi.detectAllFaces(canvas, options)) {
+          boxes.push([d.box.x + x, d.box.y + y, d.box.width, d.box.height]);
+        }
+      };
+      await detect(0, 0, image.width, image.height);
+      // โมเดลย่อรูปเหลือ 512px ก่อนตรวจ รูปจากมือถือที่ใหญ่ หน้าไกลๆ จะเล็กจนหาย
+      // จึงตรวจซ้ำทีละส่วน (ครึ่งรูป เหลื่อมกัน 3x3) เมื่อรูปใหญ่
+      if (Math.max(image.width, image.height) > 900) {
+        const tw = Math.ceil(image.width / 2), th = Math.ceil(image.height / 2);
+        for (const fx of [0, 0.25, 0.5]) {
+          for (const fy of [0, 0.25, 0.5]) {
+            const x = Math.floor(image.width * fx), y = Math.floor(image.height * fy);
+            await detect(x, y, Math.min(tw, image.width - x), Math.min(th, image.height - y));
+          }
+        }
+      }
+      image.close();
+      return JSON.stringify(mergeOverlapping(boxes));
+    };
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

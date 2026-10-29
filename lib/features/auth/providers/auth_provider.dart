@@ -35,7 +35,11 @@ final ensureProfileProvider = FutureProvider<void>((ref) async {
 final isAdminProvider = FutureProvider<bool>((ref) async {
   final user = ref.watch(authStateProvider).valueOrNull;
   if (user == null) return false;
+  return checkIsAdmin(user);
+});
 
+/// เช็กสิทธิ์ admin ของ [user] ตรงๆ (ใช้ได้นอก widget tree เช่นตอนเช็ก session timeout)
+Future<bool> checkIsAdmin(User user) async {
   try {
     final db = FirebaseFirestore.instance;
     if ((await db.collection('admins').doc(user.uid).get()).exists) return true;
@@ -45,6 +49,16 @@ final isAdminProvider = FutureProvider<bool>((ref) async {
     // อ่านไม่ได้ถือว่าไม่ใช่ admin
   }
 
-  final token = await user.getIdTokenResult(true);
-  return token.claims?['admin'] == true;
-});
+  try {
+    final token = await user.getIdTokenResult(true);
+    return token.claims?['admin'] == true;
+  } catch (_) {
+    // ออฟไลน์: ขอ token ใหม่ไม่ได้ ใช้ token เดิมในเครื่องแทน (หมดอายุแล้วก็ถือว่าไม่ใช่ admin)
+    try {
+      final token = await user.getIdTokenResult();
+      return token.claims?['admin'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+}

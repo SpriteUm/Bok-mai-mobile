@@ -48,10 +48,17 @@ class IncidentRepository {
   Future<bool> isFollowing(String issueId) async =>
       (await _follower(issueId).get()).exists;
 
-  /// สร้างเรื่องใหม่ คืน id ของเรื่อง
-  Future<String> createIssue(IncidentModel draft) async {
+  /// id ใหม่สำหรับเรื่องที่จะสร้าง (สร้างในเครื่อง ไม่ต้องต่อเน็ต) ใช้กับกล่องรอส่ง
+  String newIssueId() => _issues.doc().id;
+
+  /// มีเรื่องนี้ในระบบแล้วหรือยัง (ใช้ตอนส่งซ้ำจากกล่องรอส่ง กันส่งเบิ้ล)
+  Future<bool> issueExists(String id) async =>
+      (await _issues.doc(id).get(const GetOptions(source: Source.server))).exists;
+
+  /// สร้างเรื่องใหม่ คืน id ของเรื่อง ([id] กำหนดเองได้ เพื่อให้ส่งซ้ำแล้วไม่เกิดเรื่องซ้ำ)
+  Future<String> createIssue(IncidentModel draft, {String? id}) async {
     final uid = _uid;
-    final ref = _issues.doc();
+    final ref = _issues.doc(id);
     final geohash = encodeGeohash(draft.latitude, draft.longitude);
 
     final batch = _db.batch()
