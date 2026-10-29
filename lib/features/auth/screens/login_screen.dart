@@ -26,6 +26,36 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscureConfirm = true;
   String? _error;
 
+  String? _validatePassword(String? v) {
+    if (v == null || v.isEmpty) {
+      return 'กรุณากรอกรหัสผ่าน';
+    }
+    if (!_isSignUp) return null;
+
+    if (v.length < 8) {
+      return 'รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร';
+    }
+    if (!RegExp(r'[A-Za-z]').hasMatch(v)) {
+      return 'รหัสผ่านต้องมีตัวอักษรภาษาอังกฤษอย่างน้อย 1 ตัว';
+    }
+    if (!RegExp(r'[0-9]').hasMatch(v)) {
+      return 'รหัสผ่านต้องมีตัวเลขอย่างน้อย 1 ตัว';
+    }
+    final lower = v.toLowerCase();
+    const commonWeakPasswords = {
+      '12345678',
+      'password',
+      'password123',
+      '11111111',
+      'qwertyuiop',
+      'admin123',
+    };
+    if (commonWeakPasswords.contains(lower)) {
+      return 'รหัสผ่านนี้คาดเดาได้ง่ายเกินไป กรุณาตั้งรหัสผ่านใหม่';
+    }
+    return null;
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -204,10 +234,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'รหัสผ่าน'),
-                    validator: (v) =>
-                        (v == null || v.length < 6) ? 'อย่างน้อย 6 ตัวอักษร' : null,
+                    obscureText: _obscurePassword,
+                    decoration: InputDecoration(
+                      labelText: 'รหัสผ่าน',
+                      helperText: _isSignUp ? 'อย่างน้อย 8 ตัว มีทั้งตัวอักษรและตัวเลข' : null,
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                      ),
+                    ),
+                    validator: _validatePassword,
                     textInputAction: _isSignUp ? TextInputAction.next : TextInputAction.done,
                     onFieldSubmitted: (_) => _isSignUp || _busy ? null : _submit(),
                   ),
@@ -215,8 +251,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _confirmController,
-                      obscureText: true,
-                      decoration: const InputDecoration(labelText: 'ยืนยันรหัสผ่าน'),
+                      obscureText: _obscureConfirm,
+                      decoration: InputDecoration(
+                        labelText: 'ยืนยันรหัสผ่าน',
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                        ),
+                      ),
                       validator: (v) {
                         if (v == null || v.isEmpty) return 'กรุณากรอกรหัสผ่านอีกครั้ง';
                         if (v != _passwordController.text) return 'รหัสผ่านไม่ตรงกัน';

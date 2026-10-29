@@ -127,21 +127,6 @@
             }
           },
           {
-            "id": "7d6850d8fd2d14e5",
-            "type": "leaf",
-            "state": {
-              "type": "tag",
-              "state": {
-                "sortOrder": "frequency",
-                "useHierarchy": true,
-                "showSearch": false,
-                "searchQuery": ""
-              },
-              "icon": "lucide-tags",
-              "title": "Tags"
-            }
-          },
-          {
             "id": "464164f6fcf3ec35",
             "type": "leaf",
             "state": {
@@ -169,13 +154,28 @@
               "icon": "lucide-list",
               "title": "Outline"
             }
+          },
+          {
+            "id": "7d6850d8fd2d14e5",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
           }
-        ]
+        ],
+        "currentTab": 4
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -190,6 +190,20 @@
   },
   "active": "d987d830550eb2a2",
   "lastOpenFiles": [
+    "lib/features/feed/widgets/incident_urgency_badge.dart",
+    "lib/features/feed/widgets/emergency_note.dart",
+    "lib/features/admin/widgets/incident_location_map.dart",
+    "lib/features/admin/widgets",
+    "lib/core/constants/map_config.dart",
+    "lib/core/constants/ai_config.dart",
+    "build/url_launcher_android/intermediates/merged_consumer_proguard_file/debug/mergeDebugConsumerProguardFiles",
+    "build/url_launcher_android/intermediates/merged_consumer_proguard_file/debug",
+    "build/url_launcher_android/intermediates/merged_consumer_proguard_file",
+    "build/url_launcher_android/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt",
+    "build/url_launcher_android/intermediates/manifest_merge_blame_file/debug/processDebugManifest",
+    "Pasted image 20261029230332.png",
+    "USABILITY_TESTING_REPORT.md",
+    "build/app/intermediates/packaged_res/debug/packageDebugResources/mipmap-mdpi-v4/ic_launcher_foreground.png",
     "PRODUCT.md"
   ]
 }
