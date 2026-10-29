@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 
-/// พับแอปไว้นานเกินนี้ กลับมาต้องล็อกอินใหม่
+/// แอดมินพับแอปไว้นานเกินนี้ กลับมาต้องล็อกอินใหม่ (ผู้ใช้ทั่วไปไม่หมดเวลา)
 const sessionTimeout = Duration(minutes: 15);
 
 /// true เมื่อเพิ่งออกจากระบบเพราะหมดเวลา (หน้าเข้าสู่ระบบใช้แสดงข้อความ)
@@ -59,7 +59,12 @@ class _SessionTimeoutState extends ConsumerState<SessionTimeout> with WidgetsBin
     _backgroundAt = null;
     await _clearStamp();
     if (since == null || DateTime.now().difference(since) < sessionTimeout) return;
-    if (FirebaseAuth.instance.currentUser == null) return;
+    // ตอนเปิดแอปใหม่ Firebase อาจยังโหลดผู้ใช้ที่จำไว้ไม่เสร็จ รอให้ได้ค่าแรกก่อน
+    final user = FirebaseAuth.instance.currentUser ??
+        await FirebaseAuth.instance.authStateChanges().first;
+    if (user == null) return;
+    // หมดเวลาเฉพาะแอดมิน (เข้าถึงข้อมูลผู้แจ้งได้) ประชาชนล็อกอินครั้งเดียวจำไว้เหมือนแอปทั่วไป
+    if (!await checkIsAdmin(user)) return;
     await FirebaseAuth.instance.signOut();
     if (mounted) ref.read(sessionExpiredProvider.notifier).state = true;
   }

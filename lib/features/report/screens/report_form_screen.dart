@@ -15,7 +15,6 @@ import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
 import 'package:bok_mai_mobile/features/auth/providers/auth_provider.dart';
 import 'package:bok_mai_mobile/features/feed/providers/feed_provider.dart';
-import 'package:bok_mai_mobile/features/feed/widgets/incident_urgency_badge.dart';
 import 'package:bok_mai_mobile/features/report/screens/location_picker_screen.dart';
 import 'package:bok_mai_mobile/features/report/screens/voice_report_screen.dart';
 
@@ -169,13 +168,8 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
         _draftReplyFromAi = draft.aiDrafted;
         _urgencyAssessedFor = _storyKey();
         _draftReply = draft.aiDrafted
-            ? 'ร่างฟอร์มให้แล้ว\n'
-                '- หัวข้อ: ${draft.title}\n'
-                '- หมวด: $category\n'
-                '- ความเร่งด่วน: ${UrgencyStyle.of(draft.urgency).label}\n'
-                'ตรวจและแก้ไขได้ในฟอร์มด้านล่าง แล้วแนบรูปกับปักหมุดก่อนส่ง'
-            : 'ตอนนี้ใช้ AI ไม่ได้ จึงเดาหัวข้อและหมวดจากคำสำคัญแทน (หมวด: $category) '
-                'โปรดตรวจหัวข้อและหมวดหมู่ด้านล่างก่อนส่ง';
+            ? 'ร่างให้แล้ว: ${draft.title} ($category)'
+            : 'ใช้ AI ไม่ได้ตอนนี้ โปรดตรวจหัวข้อและหมวดหมู่';
       });
     } catch (e) {
       // ร่างไม่ได้ก็เก็บข้อความที่เล่าไว้ในช่องรายละเอียด ไม่ให้เสียข้อความผู้ใช้
@@ -183,7 +177,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
       setState(() {
         _descController.text = transcript;
         _draftReplyFromAi = false;
-        _draftReply = 'ร่างแบบฟอร์มไม่สำเร็จ ใส่ข้อความของคุณไว้ในช่องรายละเอียดแล้ว';
+        _draftReply = 'ร่างไม่สำเร็จ ใส่ข้อความไว้ในรายละเอียดแล้ว';
       });
     } finally {
       if (mounted) setState(() => _drafting = false);
@@ -454,7 +448,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              'กดไมค์แล้วพูดเล่าปัญหาที่พบ AI ช่วยร่างแบบฟอร์มให้ ตรวจแก้ได้ก่อนส่ง (พิมพ์แทนก็ได้)',
+              'พูดหรือพิมพ์เล่าปัญหา AI ช่วยกรอกฟอร์มให้',
               style: theme.textTheme.bodySmall,
             ),
             if (_lastStory != null) ...[
@@ -479,7 +473,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                         const SizedBox(width: 8),
-                        Text('AI กำลังร่างแบบฟอร์ม...', style: theme.textTheme.bodySmall),
+                        Text('กำลังร่าง...', style: theme.textTheme.bodySmall),
                       ],
                     ),
                   ),
@@ -500,7 +494,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _sendStory(),
                     decoration: InputDecoration(
-                      hintText: 'กดไมค์เพื่อพูด หรือพิมพ์เล่าปัญหา...',
+                      hintText: 'เล่าปัญหาที่พบ...',
                       filled: true,
                       fillColor: AppColors.surfaceContainerLowest,
                       isDense: true,
@@ -553,7 +547,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                     child: Center(
                       child: _locating
                           ? const CircularProgressIndicator()
-                          : const Text('ยังไม่ได้เลือกตำแหน่ง แตะ "เลือกบนแผนที่"'),
+                          : const Text('ยังไม่ได้เลือกตำแหน่ง'),
                     ),
                   )
                 : Stack(
@@ -646,10 +640,6 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             // Image Picker Section
             Text('ภาพถ่ายปัญหา', style: theme.textTheme.titleMedium),
             const SizedBox(height: 6),
-            Text(
-              'แนบภาพถ่ายสภาพปัญหาจริง (ระบบเบลอหน้าและป้ายทะเบียนอัตโนมัติ)',
-              style: theme.textTheme.bodySmall,
-            ),
             const SizedBox(height: 12),
 
             SingleChildScrollView(
@@ -761,8 +751,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             // PDPA Auto-blur Switch
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('เปิดระบบเบลอใบหน้าและป้ายทะเบียน (PDPA)'),
-              subtitle: const Text('ปิดทับข้อมูลส่วนบุคคลอัตโนมัติก่อนอัปโหลด'),
+              title: const Text('เบลอใบหน้าและป้ายทะเบียน'),
               value: _isAutoBlurEnabled,
               activeColor: AppColors.primary,
               onChanged: (val) {
@@ -844,45 +833,10 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             ],
             const SizedBox(height: 16),
 
-            // ความเร่งด่วน: AI คัดกรองเบื้องต้น เจ้าหน้าที่ตัดสินลำดับความสำคัญจริง (ผู้แจ้งไม่ต้องเลือก)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: AppColors.outlineVariant),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('ความเร่งด่วน', style: theme.textTheme.titleSmall),
-                        const SizedBox(height: 2),
-                        Text(
-                          'AI จะคัดกรองเบื้องต้นจากหัวข้อและรายละเอียดตอนส่ง '
-                          'แล้วเจ้าหน้าที่จะพิจารณาลำดับความสำคัญจริง จากความรุนแรง จำนวนผู้ร่วมแจ้ง และระยะเวลาที่รอ',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_urgencyAssessedFor != null && _urgencyAssessedFor == _storyKey()) ...[
-                    const SizedBox(width: 8),
-                    IncidentUrgencyBadge(urgency: _selectedUrgency),
-                  ],
-                ],
-              ),
-            ),
             const Divider(height: 32),
 
             // Incident Title: สั้น บรรทัดเดียว ใช้เป็นชื่อเรื่องในฟีดและรายการแอดมิน
             Text('หัวข้อปัญหา *', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 2),
-            Text('สรุปสั้นๆ ว่าเกิดอะไรขึ้น', style: theme.textTheme.bodySmall),
             const SizedBox(height: 8),
             TextFormField(
               controller: _titleController,
@@ -907,9 +861,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             const SizedBox(height: 16),
 
             // Incident Description: เล่ารายละเอียดยาวได้ แยกจากหัวข้อ
-            Text('รายละเอียดเพิ่มเติม *', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 2),
-            Text('เล่าจุดสังเกต ความเสียหาย หรือผลกระทบที่พบ', style: theme.textTheme.bodySmall),
+            Text('รายละเอียด *', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             TextFormField(
               controller: _descController,
@@ -917,7 +869,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
               maxLines: 8,
               keyboardType: TextInputType.multiline,
               decoration: InputDecoration(
-                hintText: 'เช่น ฝาท่อหน้าร้านสะดวกซื้อแตกเป็นรู รถจักรยานยนต์เกือบตกลงไป...',
+                hintText: 'จุดสังเกต ความเสียหาย หรือผลกระทบ',
                 alignLabelWithHint: true,
                 filled: true,
                 fillColor: AppColors.surfaceContainerLowest,
@@ -935,7 +887,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             const SizedBox(height: 16),
 
             // Location
-            Text('ตำแหน่งที่เกิดเหตุ (GPS)', style: theme.textTheme.titleMedium),
+            Text('ตำแหน่งที่เกิดเหตุ', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             TextFormField(
               controller: _locationController,
