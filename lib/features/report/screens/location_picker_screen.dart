@@ -8,7 +8,11 @@ import 'package:bok_mai_mobile/data/services/place_search_service.dart';
 /// เลือกพิกัดเอง: เลื่อนแผนที่ให้หมุดกลางจอตรงจุดเกิดเหตุ หรือแตะบนแผนที่ แล้วกดยืนยัน
 /// คืนค่า [LatLng] ที่เลือก (หรือ null ถ้ายกเลิก)
 class LocationPickerScreen extends StatefulWidget {
-  const LocationPickerScreen({super.key, required this.initial, this.onLocateMe});
+  const LocationPickerScreen({
+    super.key,
+    required this.initial,
+    this.onLocateMe,
+  });
 
   final LatLng initial;
 
@@ -46,7 +50,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ค้นหาสถานที่ไม่สำเร็จ โปรดตรวจสอบอินเทอร์เน็ตแล้วลองใหม่')),
+        const SnackBar(
+          content: Text(
+            'ค้นหาสถานที่ไม่สำเร็จ โปรดตรวจสอบอินเทอร์เน็ตแล้วลองใหม่',
+          ),
+        ),
       );
     } finally {
       if (mounted) setState(() => _searching = false);
@@ -93,10 +101,14 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           if (results != null) ...[
             const Divider(height: 1),
             if (results.isEmpty)
-              const ListTile(title: Text('ไม่พบสถานที่ ลองใช้คำอื่นหรือเลื่อนแผนที่หาเอง'))
+              const ListTile(
+                title: Text('ไม่พบสถานที่ ลองใช้คำอื่นหรือเลื่อนแผนที่หาเอง'),
+              )
             else
               ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.4),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.4,
+                ),
                 child: ListView.separated(
                   shrinkWrap: true,
                   padding: EdgeInsets.zero,
@@ -105,7 +117,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                   itemBuilder: (_, i) => ListTile(
                     leading: const Icon(Icons.place_outlined),
                     title: Text(results[i].name),
-                    subtitle: Text(results[i].address, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(
+                      results[i].address,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     onTap: () => _goTo(results[i]),
                   ),
                 ),
@@ -123,7 +139,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     setState(() => _locating = false);
     if (point == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('หาตำแหน่งปัจจุบันไม่ได้ โปรดเปิด GPS และอนุญาตสิทธิ์ตำแหน่ง')),
+        const SnackBar(
+          content: Text(
+            'หาตำแหน่งปัจจุบันไม่ได้ โปรดเปิด GPS และอนุญาตสิทธิ์ตำแหน่ง',
+          ),
+        ),
       );
       return;
     }
@@ -146,8 +166,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
-              onPositionChanged: (camera, _) => setState(() => _center = camera.center),
-              onTap: (_, point) => _mapController.move(point, _mapController.camera.zoom),
+              onPositionChanged: (camera, _) =>
+                  setState(() => _center = camera.center),
+              onTap: (_, point) =>
+                  _mapController.move(point, _mapController.camera.zoom),
             ),
             children: [
               TileLayer(
@@ -161,7 +183,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             child: Center(
               child: Padding(
                 padding: EdgeInsets.only(bottom: 48),
-                child: Icon(Icons.location_on_rounded, size: 48, color: AppColors.error),
+                child: Icon(
+                  Icons.location_on_rounded,
+                  size: 48,
+                  color: AppColors.error,
+                ),
               ),
             ),
           ),
@@ -200,7 +226,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text('เลื่อนแผนที่หรือแตะเพื่อวางหมุดตรงจุดเกิดเหตุ'),
+                      const Text(
+                        'เลื่อนแผนที่หรือแตะเพื่อวางหมุดตรงจุดเกิดเหตุ',
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         'GPS: ${_center.latitude.toStringAsFixed(6)}, ${_center.longitude.toStringAsFixed(6)}',
@@ -211,7 +239,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                         onPressed: () => Navigator.pop(context, _center),
                         icon: const Icon(Icons.check_rounded),
                         label: const Text('ใช้ตำแหน่งนี้'),
-                        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                        ),
                       ),
                     ],
                   ),

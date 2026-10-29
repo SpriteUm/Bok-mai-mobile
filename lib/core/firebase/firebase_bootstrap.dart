@@ -21,6 +21,12 @@ Future<bool> initFirebase() async {
     return false;
   }
 
+  // ออฟไลน์: เก็บข้อมูล Firestore ไว้ในเครื่อง เปิดแอปตอนไม่มีเน็ตยังเห็นฟีดล่าสุด
+  // (มือถือเปิดอยู่แล้วโดยค่าเริ่มต้น เว็บต้องเปิดเอง และต้องตั้งก่อนใช้ Firestore ครั้งแรก)
+  if (kIsWeb) {
+    FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
+  }
+
   const host = String.fromEnvironment('EMULATOR_HOST');
   if (kDebugMode && host.isNotEmpty) {
     await FirebaseAuth.instance.useAuthEmulator(host, 9099);

@@ -2,6 +2,7 @@ import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter/material.dart';
 import 'package:bok_mai_mobile/core/constants/ai_config.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
+import 'package:bok_mai_mobile/features/assistant/data/assistant_chat_store.dart';
 import 'package:bok_mai_mobile/features/report/screens/report_form_screen.dart';
 
 const _systemPrompt = '''
@@ -71,6 +72,37 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   /// สลับไปรุ่นสำรองแล้ว (รุ่นหลักโควตาหมด/คนใช้เยอะ) ใช้ต่อจนเริ่มบทสนทนาใหม่
   bool _useFallback = false;
 
+  /// ที่เก็บประวัติแชตของผู้ใช้ (null = ไม่ได้ล็อกอิน แชตใช้ได้แต่ไม่บันทึก)
+  final _store = AssistantChatStore.forCurrentUser();
+  bool _loadingHistory = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final store = _store;
+    if (store == null) return;
+    setState(() => _loadingHistory = true);
+    try {
+      final saved = await store.load();
+      if (!mounted) return;
+      setState(() {
+        _messages.insertAll(0, [
+          for (final m in saved)
+            _Message(m.fromUser, m.text)..reportStory = m.reportStory,
+        ]);
+      });
+      _scrollToEnd();
+    } catch (e) {
+      debugPrint('โหลดประวัติแชตไม่สำเร็จ: $e');
+    } finally {
+      if (mounted) setState(() => _loadingHistory = false);
+    }
+  }
+
   @override
   void dispose() {
     _input.dispose();
@@ -89,14 +121,39 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     final done = _messages.length >= 2
         ? _messages.sublist(0, _messages.length - 2)
         : const <_Message>[];
+    // ส่งประวัติให้ AI แค่ 30 ข้อความล่าสุด (ประวัติที่บันทึกไว้อาจยาวมาก)
+    final recent = done.length > 30 ? done.sublist(done.length - 30) : done;
     return [
-      for (final m in done)
+      for (final m in recent)
         if (!m.isError && m.raw.isNotEmpty)
           Content(m.fromUser ? 'user' : 'model', [TextPart(m.raw)]),
     ];
   }
 
-  void _reset() {
+  Future<void> _reset() async {
+    if (_store != null) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('เริ่มบทสนทนาใหม่?'),
+          content: const Text('ประวัติแชตที่บันทึกไว้จะถูกลบทั้งหมด'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('ยกเลิก'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('ลบและเริ่มใหม่'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+      _store.clear().catchError(
+        (Object e) => debugPrint('ลบประวัติแชตไม่สำเร็จ: $e'),
+      );
+    }
     setState(() {
       _messages.clear();
       _chat = null;
@@ -105,7 +162,9 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   }
 
   Future<void> _streamReply(String text, _Message reply) async {
-    await for (final chunk in _session().sendMessageStream(Content.text(text))) {
+    await for (final chunk in _session().sendMessageStream(
+      Content.text(text),
+    )) {
       final part = chunk.text;
       if (part == null || !mounted) continue;
       setState(() => reply.raw += part);
@@ -149,6 +208,18 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     return 'ตอนนี้ผู้ช่วย AI ไม่พร้อมใช้งาน โปรดตรวจอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง';
   }
 
+  /// เรื่องที่ผู้ใช้กำลังเล่า: ข้อความของผู้ใช้หลังจากปุ่ม "แจ้งปัญหานี้" ครั้งก่อน (สูงสุด 5 ข้อความ)
+  /// ประวัติที่บันทึกไว้อาจมีเรื่องเก่าหลายเรื่อง จึงไม่เอาทั้งหมดไปร่างฟอร์ม
+  String _currentStory() {
+    final parts = <String>[];
+    for (final m in _messages.reversed) {
+      if (!m.fromUser && m.reportStory != null) break;
+      if (m.fromUser) parts.insert(0, m.raw);
+      if (parts.length >= 5) break;
+    }
+    return parts.join('\n');
+  }
+
   Future<void> _send([String? preset]) async {
     final text = (preset ?? _input.text).trim();
     if (text.isEmpty || _sending) return;
@@ -166,7 +237,8 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       try {
         await _streamReply(text, reply);
       } catch (e) {
-        if (_useFallback || reply.raw.isNotEmpty || !AiConfig.shouldFallback(e)) rethrow;
+        if (_useFallback || reply.raw.isNotEmpty || !AiConfig.shouldFallback(e))
+          rethrow;
         debugPrint('AI chat: รุ่นหลักใช้ไม่ได้ สลับไปรุ่นสำรอง: $e');
         _useFallback = true;
         _chat = null;
@@ -174,13 +246,16 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       }
       if (reply.text.trim().isEmpty) throw StateError('empty response');
       if (reply.raw.contains(_reportMarker) && mounted) {
-        // ร่างจากทุกข้อความที่ผู้ใช้เล่าในบทสนทนานี้ (รายละเอียดอาจกระจายหลายข้อความ)
-        final story = _messages
-            .where((m) => m.fromUser)
-            .map((m) => m.raw)
-            .join('\n');
-        setState(() => reply.reportStory = story);
+        setState(() => reply.reportStory = _currentStory());
       }
+      // บันทึกเฉพาะคู่ที่ตอบสำเร็จ (ข้อความ error ไม่บันทึก)
+      _store
+          ?.addExchange(
+            question: text,
+            answer: reply.raw,
+            reportStory: reply.reportStory,
+          )
+          .catchError((Object e) => debugPrint('บันทึกแชตไม่สำเร็จ: $e'));
     } catch (e) {
       debugPrint('AI chat error: $e');
       if (!mounted) return;
@@ -216,7 +291,9 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         children: [
           Expanded(
             child: _messages.isEmpty
-                ? _emptyState(theme)
+                ? (_loadingHistory
+                      ? const Center(child: CircularProgressIndicator())
+                      : _emptyState(theme))
                 : ListView.builder(
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),

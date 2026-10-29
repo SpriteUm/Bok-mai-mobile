@@ -8,8 +8,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:bok_mai_mobile/core/constants/map_config.dart';
 import 'package:bok_mai_mobile/core/constants/cloudinary_config.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
+import 'package:bok_mai_mobile/data/outbox/outbox_item.dart';
+import 'package:bok_mai_mobile/data/outbox/outbox_provider.dart';
 import 'package:bok_mai_mobile/data/services/face_blur_service.dart';
-import 'package:bok_mai_mobile/data/services/image_upload_service.dart';
+import 'package:bok_mai_mobile/data/services/place_search_service.dart';
 import 'package:bok_mai_mobile/data/services/voice_report_drafter.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
 import 'package:bok_mai_mobile/features/feed/models/incident_model.dart';
@@ -36,11 +38,16 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
   final _categoryNoteController = TextEditingController();
-  final _locationController = TextEditingController(
-    text: 'ถนนฉลองกรุง แขวงลาดกระบัง เขตลาดกระบัง กทม.',
-  );
+
+  /// ที่อยู่เกิดเหตุ: กรอกให้อัตโนมัติจากจุดที่ปักหมุด แก้เองได้
+  final _locationController = TextEditingController();
+
+  /// ที่อยู่ล่าสุดที่ระบบกรอกให้ ถ้าผู้ใช้แก้เองแล้วจะไม่เขียนทับ
+  String _autoAddress = '';
+  bool _lookingUpAddress = false;
 
   IncidentCategory _selectedCategory = IncidentCategory.road;
+
   /// ความเร่งด่วนเบื้องต้นจาก AI (ผู้แจ้งไม่ได้เลือกเอง เจ้าหน้าที่เป็นผู้ตัดสินลำดับความสำคัญจริง)
   IncidentUrgency _selectedUrgency = IncidentUrgency.medium;
 
@@ -62,6 +69,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   String? _lastStory;
   String? _draftReply;
   bool _draftReplyFromAi = false;
+
   /// เบลอใบหน้าอัตโนมัติ (PDPA) เปิดไว้เสมอบนมือถือ บนเว็บใช้ไม่ได้ (ML Kit ไม่รองรับ)
   bool _isAutoBlurEnabled = FaceBlurService.isSupported;
 
@@ -114,9 +122,9 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
       if (_isAutoBlurEnabled) await _blur(photo);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เลือกรูปภาพไม่สำเร็จ: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('เลือกรูปภาพไม่สำเร็จ: $e')));
       }
     }
   }
@@ -150,7 +158,9 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     if (_drafting) return;
     final story = await Navigator.push<String>(
       context,
-      MaterialPageRoute(builder: (_) => const VoiceReportScreen(returnStory: true)),
+      MaterialPageRoute(
+        builder: (_) => const VoiceReportScreen(returnStory: true),
+      ),
     );
     if (story == null || story.trim().isEmpty || !mounted) return;
     _storyController.text = story.trim();
@@ -174,9 +184,13 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   /// ให้ AI ร่างฟอร์มจากข้อความ (เสียงที่ถอดแล้ว หรือที่พิมพ์) ผู้ใช้ตรวจแก้ได้ก่อนส่ง
   Future<void> _draftFrom(String transcript) async {
     try {
-      final draft = await ref.read(voiceReportDrafterProvider).draft(transcript);
+      final draft = await ref
+          .read(voiceReportDrafterProvider)
+          .draft(transcript);
       if (!mounted) return;
-      final category = draft.category == IncidentCategory.other && draft.categoryNote.isNotEmpty
+      final category =
+          draft.category == IncidentCategory.other &&
+              draft.categoryNote.isNotEmpty
           ? 'อื่นๆ: ${draft.categoryNote}'
           : IncidentModel.labelFor(draft.category);
       setState(() {
@@ -219,7 +233,9 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
         return null;
       }
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(timeLimit: Duration(seconds: 8)),
+        locationSettings: const LocationSettings(
+          timeLimit: Duration(seconds: 8),
+        ),
       );
       return LatLng(pos.latitude, pos.longitude);
     } catch (_) {
@@ -234,12 +250,16 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     if (!mounted) return;
     setState(() {
       _locating = false;
-      if (point != null && (!silent || _pickedPoint == null)) _pickedPoint = point;
+      if (point != null && (!silent || _pickedPoint == null))
+        _pickedPoint = point;
     });
+    if (point != null && _pickedPoint == point) _fillAddress(point);
     if (!silent) {
-      _showMessage(point == null
-          ? 'หาตำแหน่งปัจจุบันไม่ได้ โปรดเปิด GPS หรือเลือกจุดบนแผนที่เอง'
-          : 'อัปเดตพิกัด GPS ปัจจุบันแล้ว');
+      _showMessage(
+        point == null
+            ? 'หาตำแหน่งปัจจุบันไม่ได้ โปรดเปิด GPS หรือเลือกจุดบนแผนที่เอง'
+            : 'อัปเดตพิกัด GPS ปัจจุบันแล้ว',
+      );
     }
   }
 
@@ -252,20 +272,46 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
         ),
       ),
     );
-    if (picked != null && mounted) setState(() => _pickedPoint = picked);
+    if (picked == null || !mounted) return;
+    setState(() => _pickedPoint = picked);
+    _fillAddress(picked);
   }
 
-  String _storyKey() => '${_titleController.text.trim()}\n${_descController.text.trim()}';
+  /// แปลงพิกัดที่เลือกเป็นที่อยู่ แล้วกรอกให้ (ไม่ทับที่อยู่ที่ผู้ใช้พิมพ์เอง)
+  Future<void> _fillAddress(LatLng point) async {
+    final current = _locationController.text.trim();
+    if (current.isNotEmpty && current != _autoAddress) return;
+    setState(() => _lookingUpAddress = true);
+    final address = await PlaceSearchService().reverse(point);
+    if (!mounted) return;
+    setState(() {
+      _lookingUpAddress = false;
+      // ระหว่างรอ ผู้ใช้อาจพิมพ์เองแล้ว หรือเลือกจุดใหม่ไปแล้ว
+      final now = _locationController.text.trim();
+      if (address != null &&
+          _pickedPoint == point &&
+          (now.isEmpty || now == _autoAddress)) {
+        _locationController.text = address;
+        _autoAddress = address;
+      }
+    });
+  }
+
+  String _storyKey() =>
+      '${_titleController.text.trim()}\n${_descController.text.trim()}';
 
   /// AI คัดกรองความเร่งด่วนเบื้องต้นด้วยเกณฑ์เดียวกันทุกเรื่อง (ประเมินใหม่เมื่อข้อความเปลี่ยน)
   /// ถ้า AI ใช้ไม่ได้ ระบบเดาจากคำสำคัญแทน เจ้าหน้าที่ปรับลำดับความสำคัญจริงได้ภายหลัง
-  Future<IncidentUrgency> _screenUrgency() async {
+  Future<IncidentUrgency> _screenUrgency({bool online = true}) async {
     final key = _storyKey();
     if (key == _urgencyAssessedFor) return _selectedUrgency;
     try {
-      final draft = await ref.read(voiceReportDrafterProvider).draft(
-            'หัวข้อ: ${_titleController.text.trim()}\nรายละเอียด: ${_descController.text.trim()}',
-          );
+      final drafter = online
+          ? ref.read(voiceReportDrafterProvider)
+          : const KeywordReportDrafter();
+      final draft = await drafter.draft(
+        'หัวข้อ: ${_titleController.text.trim()}\nรายละเอียด: ${_descController.text.trim()}',
+      );
       _selectedUrgency = draft.urgency;
       _urgencyAssessedFor = key;
     } catch (_) {
@@ -278,13 +324,17 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     if (!_formKey.currentState!.validate() || _submitting) return;
     if (!ref.read(firebaseReadyProvider) ||
         ref.read(authStateProvider).valueOrNull == null) {
-      _showMessage('แก้ไขได้เมื่อเชื่อมต่อ Firebase และเข้าสู่ระบบแล้วเท่านั้น');
+      _showMessage(
+        'แก้ไขได้เมื่อเชื่อมต่อ Firebase และเข้าสู่ระบบแล้วเท่านั้น',
+      );
       return;
     }
     setState(() => _submitting = true);
     final urgency = await _screenUrgency();
     try {
-      await ref.read(incidentRepositoryProvider).updateIssue(
+      await ref
+          .read(incidentRepositoryProvider)
+          .updateIssue(
             widget.editing!.copyWith(
               title: _titleController.text.trim(),
               description: _descController.text.trim(),
@@ -297,7 +347,9 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      _showMessage('แก้ไขไม่สำเร็จ (แก้ได้เฉพาะเรื่องที่รอดำเนินการและไม่มีคนกด +1 ร่วม): $e');
+      _showMessage(
+        'แก้ไขไม่สำเร็จ (แก้ได้เฉพาะเรื่องที่รอดำเนินการและไม่มีคนกด +1 ร่วม): $e',
+      );
       return;
     }
     if (!mounted) return;
@@ -315,36 +367,30 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
         return;
       }
       if (_photos.any((p) => p.blurred == null)) {
-        _showMessage('มีรูปที่เบลอใบหน้าไม่สำเร็จ ลบรูปนั้นหรือถ่ายใหม่ก่อนส่ง');
+        _showMessage(
+          'มีรูปที่เบลอใบหน้าไม่สำเร็จ ลบรูปนั้นหรือถ่ายใหม่ก่อนส่ง',
+        );
         return;
       }
     }
     setState(() => _submitting = true);
 
-    final urgency = await _screenUrgency();
-    final position = _pickedPoint ?? await _gpsPosition() ?? MapConfig.defaultCenter;
+    final online = await hasNetwork();
+    final urgency = await _screenUrgency(online: online);
+    final position =
+        _pickedPoint ?? await _gpsPosition() ?? MapConfig.defaultCenter;
+    final firebaseReady = ref.read(firebaseReadyProvider);
 
-    // อัปโหลดรูปไป Cloudinary แล้วเก็บเป็นลิงก์ (สูงสุด 5 รูปตาม firestore.rules)
-    var imageUrls = <String>[];
+    // รูปที่จะส่ง: ฉบับเบลอใบหน้าถ้าเปิดเบลอไว้ (สูงสุด 5 รูปตาม firestore.rules)
+    var images = <Uint8List>[
+      for (final p in _photos.take(5))
+        _isAutoBlurEnabled && p.blurred != null ? p.blurred! : p.original,
+    ];
     String? imageWarning;
-    if (_photos.isNotEmpty && ref.read(firebaseReadyProvider)) {
-      if (CloudinaryConfig.isConfigured) {
-        try {
-          imageUrls = await ImageUploadService().uploadAll([
-            for (final (i, p) in _photos.take(5).indexed)
-              _isAutoBlurEnabled && p.blurred != null
-                  ? XFile.fromData(p.blurred!, name: 'report_$i.jpg', mimeType: 'image/jpeg')
-                  : p.file,
-          ]);
-        } catch (e) {
-          if (!mounted) return;
-          setState(() => _submitting = false);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-          return;
-        }
-      } else {
-        imageWarning = 'ส่งรายงานแล้ว แต่ยังไม่ได้ตั้งค่า Cloudinary จึงไม่ได้แนบรูป';
-      }
+    if (images.isNotEmpty && firebaseReady && !CloudinaryConfig.isConfigured) {
+      images = [];
+      imageWarning =
+          'ส่งรายงานแล้ว แต่ยังไม่ได้ตั้งค่า Cloudinary จึงไม่ได้แนบรูป';
     }
 
     final draft = IncidentModel(
@@ -358,51 +404,91 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
       locationAddress: _locationController.text.trim(),
       latitude: position.latitude,
       longitude: position.longitude,
-      imageUrls: imageUrls,
+      imageUrls: const [],
       upvoteCount: 1,
       hasUpvoted: true,
       createdAt: DateTime.now(),
     );
 
-    try {
-      if (ref.read(firebaseReadyProvider)) {
-        await ref.read(incidentRepositoryProvider).createIssue(draft);
-      } else {
-        // โหมดข้อมูลจำลอง (Firebase ไม่พร้อม)
-        ref.read(incidentFeedProvider.notifier).addLocal(
-              draft.copyWith(id: 'inc-${DateTime.now().millisecondsSinceEpoch}'),
-            );
-      }
-    } catch (e) {
+    if (!firebaseReady) {
+      // โหมดข้อมูลจำลอง (Firebase ไม่พร้อม)
+      ref
+          .read(incidentFeedProvider.notifier)
+          .addLocal(
+            draft.copyWith(id: 'inc-${DateTime.now().millisecondsSinceEpoch}'),
+          );
       if (!mounted) return;
-      setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ส่งรายงานไม่สำเร็จ: $e')),
-      );
+      Navigator.pop(context);
+      _showResult('ส่งรายงานปัญหาสำเร็จ!', AppColors.statusResolved);
       return;
     }
 
+    final uid = ref.read(authStateProvider).valueOrNull?.uid;
+    if (uid == null) {
+      setState(() => _submitting = false);
+      _showMessage('ต้องเข้าสู่ระบบก่อนส่งรายงาน');
+      return;
+    }
+
+    // ทุกรายงานเข้ากล่องรอส่งก่อน แล้วส่งทันทีถ้ามีเน็ต (ส่งไม่ได้ก็รอส่งเองเมื่อออนไลน์)
+    final outbox = ref.read(outboxProvider.notifier);
+    final item = OutboxItem(
+      id: ref.read(incidentRepositoryProvider).newIssueId(),
+      uid: uid,
+      createdAt: DateTime.now(),
+      report: draft,
+      images: images,
+    );
+    try {
+      await outbox.enqueue(item);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _showMessage('บันทึกรายงานไม่สำเร็จ: $e');
+      return;
+    }
+    if (online) await outbox.flush();
+    final sent = !ref.read(outboxProvider).any((i) => i.id == item.id);
+
     if (!mounted) return;
     Navigator.pop(context);
+    if (sent) {
+      _showResult(
+        imageWarning ?? 'ส่งรายงานปัญหาสำเร็จ! เจ้าหน้าที่กำลังรับเรื่อง',
+        AppColors.statusResolved,
+      );
+    } else {
+      _showResult(
+        outbox.persistent
+            ? 'ยังไม่มีอินเทอร์เน็ต บันทึกรายงานไว้แล้ว จะส่งให้อัตโนมัติเมื่อกลับมาออนไลน์'
+            : 'ยังไม่มีอินเทอร์เน็ต บันทึกรายงานไว้แล้ว จะส่งเมื่อออนไลน์ (อย่าเพิ่งปิดแท็บนี้)',
+        AppColors.statusPending,
+      );
+    }
+  }
 
+  void _showResult(String text, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
             const Icon(Icons.check_circle_rounded, color: Colors.white),
             const SizedBox(width: 8),
-            Expanded(
-              child: Text(imageWarning ?? 'ส่งรายงานปัญหาสำเร็จ! เจ้าหน้าที่กำลังรับเรื่อง'),
-            ),
+            Expanded(child: Text(text)),
           ],
         ),
-        backgroundColor: AppColors.statusResolved,
+        backgroundColor: color,
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
-  Widget _chatBubble(ThemeData theme, String text, {required bool fromUser, bool fromAi = false}) {
+  Widget _chatBubble(
+    ThemeData theme,
+    String text, {
+    required bool fromUser,
+    bool fromAi = false,
+  }) {
     return Align(
       alignment: fromUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -410,12 +496,16 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         constraints: const BoxConstraints(maxWidth: 520),
         decoration: BoxDecoration(
-          color: fromUser ? AppColors.primary : AppColors.surfaceContainerLowest,
+          color: fromUser
+              ? AppColors.primary
+              : AppColors.surfaceContainerLowest,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(AppRadius.lg),
             topRight: const Radius.circular(AppRadius.lg),
             bottomLeft: Radius.circular(fromUser ? AppRadius.lg : AppRadius.xs),
-            bottomRight: Radius.circular(fromUser ? AppRadius.xs : AppRadius.lg),
+            bottomRight: Radius.circular(
+              fromUser ? AppRadius.xs : AppRadius.lg,
+            ),
           ),
         ),
         child: Column(
@@ -471,7 +561,11 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.auto_awesome_rounded, color: AppColors.primary, size: 20),
+                const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   'Voice-to-Report',
@@ -495,7 +589,10 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                   alignment: Alignment.centerLeft,
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.surfaceContainerLowest,
                       borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -515,7 +612,12 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                   ),
                 )
               else if (reply != null)
-                _chatBubble(theme, reply, fromUser: false, fromAi: _draftReplyFromAi),
+                _chatBubble(
+                  theme,
+                  reply,
+                  fromUser: false,
+                  fromAi: _draftReplyFromAi,
+                ),
             ],
             const SizedBox(height: 12),
             Row(
@@ -534,7 +636,10 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                       filled: true,
                       fillColor: AppColors.surfaceContainerLowest,
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(AppRadius.xl),
                       ),
@@ -554,8 +659,13 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                         foregroundColor: Colors.white,
                         minimumSize: const Size(52, 52),
                       ),
-                      onPressed: _drafting ? null : (typed ? _sendStory : _openVoicePage),
-                      icon: Icon(typed ? Icons.send_rounded : Icons.mic_rounded, size: 26),
+                      onPressed: _drafting
+                          ? null
+                          : (typed ? _sendStory : _openVoicePage),
+                      icon: Icon(
+                        typed ? Icons.send_rounded : Icons.mic_rounded,
+                        size: 26,
+                      ),
                     );
                   },
                 ),
@@ -572,20 +682,26 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     final (text, color) = photo.blurring
         ? ('กำลังเบลอ...', Colors.black54)
         : photo.error != null
-            ? (photo.error!, AppColors.error)
-            : photo.faceCount > 0
-                ? ('เบลอ ${photo.faceCount} หน้า', AppColors.statusResolved)
-                : ('ไม่พบใบหน้า', Colors.black54);
+        ? (photo.error!, AppColors.error)
+        : photo.faceCount > 0
+        ? ('เบลอ ${photo.faceCount} หน้า', AppColors.statusResolved)
+        : ('ไม่พบใบหน้า', Colors.black54);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.85),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppRadius.md)),
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(AppRadius.md),
+        ),
       ),
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -617,12 +733,15 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                         options: MapOptions(
                           initialCenter: point,
                           initialZoom: 16,
-                          interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                          interactionOptions: const InteractionOptions(
+                            flags: InteractiveFlag.none,
+                          ),
                         ),
                         children: [
                           TileLayer(
                             urlTemplate: MapConfig.tileUrl,
-                            userAgentPackageName: MapConfig.userAgentPackageName,
+                            userAgentPackageName:
+                                MapConfig.userAgentPackageName,
                           ),
                           MarkerLayer(
                             markers: [
@@ -631,7 +750,11 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                                 width: 40,
                                 height: 40,
                                 alignment: Alignment.topCenter,
-                                child: const Icon(Icons.location_on_rounded, size: 40, color: AppColors.error),
+                                child: const Icon(
+                                  Icons.location_on_rounded,
+                                  size: 40,
+                                  color: AppColors.error,
+                                ),
                               ),
                             ],
                           ),
@@ -683,153 +806,157 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEdit ? 'แก้ไขรายงาน' : 'แจ้งปัญหาสาธารณะ'),
-      ),
+      appBar: AppBar(title: Text(_isEdit ? 'แก้ไขรายงาน' : 'แจ้งปัญหาสาธารณะ')),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             if (!_isEdit) ...[
-            // Voice-to-Report: เล่าปัญหาแบบแชต (พิมพ์หรือพูด) ให้ AI ร่างฟอร์ม
-            _aiDraftChat(theme),
-            const SizedBox(height: 20),
+              // Voice-to-Report: เล่าปัญหาแบบแชต (พิมพ์หรือพูด) ให้ AI ร่างฟอร์ม
+              _aiDraftChat(theme),
+              const SizedBox(height: 20),
 
-            // Image Picker Section
-            Text('ภาพถ่ายปัญหา', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 6),
-            const SizedBox(height: 12),
+              // Image Picker Section
+              Text('ภาพถ่ายปัญหา', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 6),
+              const SizedBox(height: 12),
 
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  // Add Camera Button
-                  InkWell(
-                    onTap: () => _pickImage(ImageSource.camera),
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: Container(
-                      width: 90,
-                      height: 90,
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(color: AppColors.outlineVariant),
-                      ),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt_rounded, color: AppColors.primary),
-                          SizedBox(height: 4),
-                          Text('ถ่ายรูปสด', style: TextStyle(fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-
-                  // Add Gallery Button
-                  InkWell(
-                    onTap: () => _pickImage(ImageSource.gallery),
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: Container(
-                      width: 90,
-                      height: 90,
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(color: AppColors.outlineVariant),
-                      ),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.photo_library_rounded, color: AppColors.secondary),
-                          SizedBox(height: 4),
-                          Text('คลังภาพ', style: TextStyle(fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-
-                  // Selected Images Thumbnails
-                  ..._photos.map(
-                    (photo) => Padding(
-                      padding: const EdgeInsets.only(right: 10),
-                      child: Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                            child: Image.memory(
-                              _isAutoBlurEnabled && photo.blurred != null
-                                  ? photo.blurred!
-                                  : photo.original,
-                              width: 90,
-                              height: 90,
-                              fit: BoxFit.cover,
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    // Add Camera Button
+                    InkWell(
+                      onTap: () => _pickImage(ImageSource.camera),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      child: Container(
+                        width: 90,
+                        height: 90,
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          border: Border.all(color: AppColors.outlineVariant),
+                        ),
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.camera_alt_rounded,
+                              color: AppColors.primary,
                             ),
-                          ),
-                          if (_isAutoBlurEnabled)
+                            SizedBox(height: 4),
+                            Text('ถ่ายรูปสด', style: TextStyle(fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+
+                    // Add Gallery Button
+                    InkWell(
+                      onTap: () => _pickImage(ImageSource.gallery),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      child: Container(
+                        width: 90,
+                        height: 90,
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          border: Border.all(color: AppColors.outlineVariant),
+                        ),
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.photo_library_rounded,
+                              color: AppColors.secondary,
+                            ),
+                            SizedBox(height: 4),
+                            Text('คลังภาพ', style: TextStyle(fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+
+                    // Selected Images Thumbnails
+                    ..._photos.map(
+                      (photo) => Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              child: Image.memory(
+                                _isAutoBlurEnabled && photo.blurred != null
+                                    ? photo.blurred!
+                                    : photo.original,
+                                width: 90,
+                                height: 90,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            if (_isAutoBlurEnabled)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: _blurStatus(photo),
+                              ),
                             Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: _blurStatus(photo),
-                            ),
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _photos.remove(photo);
-                                });
-                              },
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                  color: Colors.black54,
-                                  shape: BoxShape.circle,
-                                ),
-                                padding: const EdgeInsets.all(4),
-                                child: const Icon(
-                                  Icons.close_rounded,
-                                  size: 14,
-                                  color: Colors.white,
+                              top: 4,
+                              right: 4,
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _photos.remove(photo);
+                                  });
+                                },
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    color: Colors.black54,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  padding: const EdgeInsets.all(4),
+                                  child: const Icon(
+                                    Icons.close_rounded,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-            // PDPA Auto-blur Switch
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('เบลอใบหน้าคนในรูปอัตโนมัติ'),
-              subtitle: FaceBlurService.isSupported
-                  ? null
-                  : const Text('ใช้ได้ในแอปมือถือเท่านั้น'),
-              value: _isAutoBlurEnabled,
-              activeColor: AppColors.primary,
-              onChanged: FaceBlurService.isSupported
-                  ? (val) {
-                      setState(() => _isAutoBlurEnabled = val);
-                      if (val) {
-                        for (final p in _photos) {
-                          _blur(p);
+              // PDPA Auto-blur Switch
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('เบลอใบหน้าคนในรูปอัตโนมัติ'),
+                subtitle: FaceBlurService.isSupported
+                    ? null
+                    : const Text('ใช้ได้ในแอปมือถือเท่านั้น'),
+                value: _isAutoBlurEnabled,
+                activeColor: AppColors.primary,
+                onChanged: FaceBlurService.isSupported
+                    ? (val) {
+                        setState(() => _isAutoBlurEnabled = val);
+                        if (val) {
+                          for (final p in _photos) {
+                            _blur(p);
+                          }
                         }
                       }
-                    }
-                  : null,
-            ),
-            const Divider(height: 24),
+                    : null,
+              ),
+              const Divider(height: 24),
             ],
 
             // Category Selection
@@ -843,7 +970,10 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
               ),
               items: IncidentCategory.values.map((cat) {
                 String label;
@@ -961,8 +1091,23 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
             TextFormField(
               controller: _locationController,
               decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.location_on_rounded, color: AppColors.primary),
-                hintText: 'ที่อยู่หรือจุดสังเกต',
+                prefixIcon: const Icon(
+                  Icons.location_on_rounded,
+                  color: AppColors.primary,
+                ),
+                hintText: _lookingUpAddress
+                    ? 'กำลังหาที่อยู่จากแผนที่...'
+                    : 'ที่อยู่หรือจุดสังเกต',
+                suffixIcon: _lookingUpAddress
+                    ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
                 filled: true,
                 fillColor: AppColors.surfaceContainerLowest,
                 border: OutlineInputBorder(
