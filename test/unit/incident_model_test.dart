@@ -57,6 +57,37 @@ void main() {
       expect(updated.title, 'สายไฟขาด');
       expect(updated.categoryLabel, 'ไฟฟ้า');
     });
+
+    test('categoryNote ใช้เฉพาะหมวดอื่นๆ และถูกล้างเมื่อเปลี่ยนหมวด', () {
+      final other = IncidentModel(
+        id: 'inc-2',
+        title: 'ต้นไม้ล้มขวางทาง',
+        description: '',
+        category: IncidentCategory.other,
+        categoryNote: ' ต้นไม้ล้ม ',
+        status: IncidentStatus.pending,
+        locationAddress: '',
+        latitude: 13.7299,
+        longitude: 100.7782,
+        imageUrls: const [],
+        upvoteCount: 1,
+        createdAt: DateTime(2026),
+      );
+
+      expect(other.categoryLabel, 'อื่นๆ: ต้นไม้ล้ม');
+      expect(other.toFeedMap(geohash: 'w4rq')['categoryNote'], 'ต้นไม้ล้ม');
+
+      // ยังไม่มีลำดับจากเจ้าหน้าที่ ใช้ผลคัดกรองไปก่อน กำหนดแล้วใช้ของเจ้าหน้าที่
+      expect(other.copyWith(urgency: IncidentUrgency.high).effectivePriority, IncidentUrgency.high);
+      expect(
+        other.copyWith(urgency: IncidentUrgency.high, priority: IncidentUrgency.low).effectivePriority,
+        IncidentUrgency.low,
+      );
+
+      final road = other.copyWith(category: IncidentCategory.road);
+      expect(road.categoryLabel, 'ถนน / ทางเท้า');
+      expect(road.effectiveCategoryNote, isEmpty);
+    });
   });
 
   group('Unit Tests: Geohash Utilities', () {

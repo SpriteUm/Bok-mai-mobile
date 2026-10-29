@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
 import 'package:bok_mai_mobile/core/theme/app_theme.dart';
+import 'package:bok_mai_mobile/features/assistant/screens/ai_assistant_screen.dart';
 import 'package:bok_mai_mobile/features/feed/screens/home_screen.dart';
 import 'package:bok_mai_mobile/features/history/screens/my_history_screen.dart';
 import 'package:bok_mai_mobile/features/map/screens/interactive_map_screen.dart';
 import 'package:bok_mai_mobile/features/profile/screens/profile_screen.dart';
 import 'package:bok_mai_mobile/features/report/screens/report_form_screen.dart';
+import 'package:bok_mai_mobile/features/report/screens/voice_report_screen.dart';
 
 class MainNavigationShell extends StatefulWidget {
   const MainNavigationShell({super.key});
@@ -24,6 +26,38 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     const ProfileScreen(),
   ];
 
+  void _openAssistant() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AiAssistantScreen()),
+    );
+  }
+
+  /// ปุ่มลอยเปิดผู้ช่วย AI (แยกจากแถบเมนู)
+  Widget _assistantButton() {
+    return FloatingActionButton.small(
+      heroTag: 'ai-assistant',
+      tooltip: 'ผู้ช่วย AI',
+      backgroundColor: AppColors.secondaryContainer,
+      foregroundColor: AppColors.onSecondaryContainer,
+      onPressed: _openAssistant,
+      child: const Icon(Icons.smart_toy_rounded),
+    );
+  }
+
+  /// ปุ่มลอยเปิด Voice-to-Report (พูดเล่าปัญหา แล้วไปหน้าฟอร์มที่ AI ร่างให้)
+  Widget _voiceButton() {
+    return FloatingActionButton.small(
+      heroTag: 'voice-report',
+      tooltip: 'Voice-to-Report: พูดเพื่อแจ้งปัญหา',
+      onPressed: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const VoiceReportScreen()),
+      ),
+      child: const Icon(Icons.mic_rounded),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // ตรวจสอบขนาดหน้าจอ: ถ้ากว้างกว่าหรือเท่ากับ 640px (iPad / Tablet) ให้ใช้ NavigationRail ด้านข้าง
@@ -31,6 +65,14 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
     if (isTablet) {
       return Scaffold(
+        floatingActionButton: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _voiceButton(),
+            const SizedBox(height: 12),
+            _assistantButton(),
+          ],
+        ),
         body: Row(
           children: [
             // iPad / Tablet Side Navigation Rail
@@ -63,7 +105,9 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
                       onPressed: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const ReportFormScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const ReportFormScreen(),
+                          ),
                         );
                       },
                       child: const Icon(Icons.add_a_photo_rounded),
@@ -97,10 +141,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             const VerticalDivider(thickness: 1, width: 1),
             // Content Screen
             Expanded(
-              child: IndexedStack(
-                index: _currentIndex,
-                children: _screens,
-              ),
+              child: IndexedStack(index: _currentIndex, children: _screens),
             ),
           ],
         ),
@@ -109,22 +150,30 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
     // Phone Compact Layout: Bottom Navigation Bar + FAB
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ReportFormScreen()),
-          );
-        },
-        icon: const Icon(Icons.add_a_photo_rounded),
-        label: const Text(
-          'แจ้งปัญหา',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
+      body: IndexedStack(index: _currentIndex, children: _screens),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          _assistantButton(),
+          const SizedBox(height: 12),
+          _voiceButton(),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'report',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ReportFormScreen()),
+              );
+            },
+            icon: const Icon(Icons.add_a_photo_rounded),
+            label: const Text(
+              'แจ้งปัญหา',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
