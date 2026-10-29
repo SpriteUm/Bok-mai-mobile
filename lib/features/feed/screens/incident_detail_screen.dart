@@ -219,7 +219,10 @@ class _IncidentDetailScreenState extends State<IncidentDetailScreen> {
                 const SizedBox(height: 16),
 
                 // หมายเหตุ/feedback จากเจ้าหน้าที่ (เห็นเฉพาะเจ้าของเรื่อง)
-                IncidentUpdatesSection(incidentId: incident.id),
+                IncidentUpdatesSection(
+                  incidentId: incident.id,
+                  resolutionImageUrls: incident.resolutionImageUrls,
+                ),
                 const SizedBox(height: 8),
 
                 // Lifecycle Timeline (State Machine)
