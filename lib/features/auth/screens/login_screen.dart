@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:bok_mai_mobile/core/auth/session_timeout.dart';
 import 'package:bok_mai_mobile/core/theme/app_colors.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -16,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmController = TextEditingController();
 
   bool _isSignUp = false;
   bool _busy = false;
@@ -26,6 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmController.dispose();
     super.dispose();
   }
 
@@ -156,6 +160,28 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
+                  Consumer(
+                    builder: (context, ref, _) {
+                      if (!ref.watch(sessionExpiredProvider)) return const SizedBox.shrink();
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.statusPendingContainer.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.lock_clock_rounded, color: AppColors.statusPending),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text('หมดเวลาการใช้งานเพราะไม่ได้เปิดแอปนาน กรุณาเข้าสู่ระบบใหม่'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                   if (_isSignUp) ...[
                     TextFormField(
                       controller: _nameController,
@@ -180,8 +206,23 @@ class _LoginScreenState extends State<LoginScreen> {
                     decoration: const InputDecoration(labelText: 'รหัสผ่าน'),
                     validator: (v) =>
                         (v == null || v.length < 6) ? 'อย่างน้อย 6 ตัวอักษร' : null,
-                    onFieldSubmitted: (_) => _busy ? null : _submit(),
+                    textInputAction: _isSignUp ? TextInputAction.next : TextInputAction.done,
+                    onFieldSubmitted: (_) => _isSignUp || _busy ? null : _submit(),
                   ),
+                  if (_isSignUp) ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _confirmController,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'ยืนยันรหัสผ่าน'),
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'กรุณากรอกรหัสผ่านอีกครั้ง';
+                        if (v != _passwordController.text) return 'รหัสผ่านไม่ตรงกัน';
+                        return null;
+                      },
+                      onFieldSubmitted: (_) => _busy ? null : _submit(),
+                    ),
+                  ],
                   if (_error != null) ...[
                     const SizedBox(height: 12),
                     Text(
@@ -237,6 +278,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         : () => setState(() {
                               _isSignUp = !_isSignUp;
                               _error = null;
+                              _confirmController.clear();
                             }),
                     child: Text(
                       _isSignUp
