@@ -22,6 +22,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _isSignUp = false;
   bool _busy = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
   String? _error;
 
   @override
