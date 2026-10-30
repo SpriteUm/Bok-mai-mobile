@@ -188,8 +188,13 @@
       "bases:Create new base": false
     }
   },
-  "active": "adf86ce57d3e2314",
+  "active": "d987d830550eb2a2",
   "lastOpenFiles": [
+    "android/app/src/main/res/drawable-nodpi/launch_logo.png",
+    "android/app/src/main/res/drawable-nodpi",
+    "lib/core/constants/ai_config.dart",
+    "lib/core/auth/session_timeout.dart",
+    "lib/core/auth",
     "TEST_AND_COVERAGE_REPORT.md",
     "USABILITY_TESTING_REPORT.md",
     "coverage/lcov.info",
@@ -198,10 +203,6 @@
     "build/test_cache/build/8ba5843e",
     "build/test_cache/build/fa715284",
     "build/test_cache/build/6cf157d0",
-    "build/test_cache/build/c66f6ff3",
-    "build/test_cache/build/b14e1312",
-    "build/unit_test_assets/NativeAssetsManifest.json",
-    "lib/features/feed/widgets/incident_urgency_badge.dart",
     "Pasted image 20261029230332.png",
     "build/app/intermediates/packaged_res/debug/packageDebugResources/mipmap-mdpi-v4/ic_launcher_foreground.png",
     "PRODUCT.md"
